@@ -1,0 +1,11 @@
+services:
+  docker-manager:
+    build: .
+    container_name: docker-manager
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/joe/media-server:/home/joe/media-server
+    ports:
+      - "5003:5003"
+    restart: unless-stopped
