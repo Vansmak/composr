@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Composr</title>
+    <style>
+        :root {
+            --bg-primary: #121212;
+            --bg-secondary: #1e1e1e;
+            --bg-card: #2d2d2d;
+            --text-primary: #ffffff;
+            --text-secondary: #b3b3b3;
+            --accent-primary: #2196F3;
+            --accent-success: #4CAF50;
+            --accent-error: #f44336;
+            --accent-warning: #ff9800;
+            --border-color: #404040;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            overscroll-behavior: none;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0.5rem;
+        }
+
+        header {
+            padding: 0;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+        }
+        .logo {
+            max-height: 56px;
+            height: auto;
+            width: auto;
+            display: block;
+        }
+
+        .tabs {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            background: var(--bg-secondary);
+            padding: 0.25rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            flex-wrap: nowrap;
+        }
+
+        .tab {
+            padding: 0.5rem 1rem;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            border-radius: 0.25rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .tab.active {
+            background: var(--accent-primary);
+            color: white;
+        }
+
+        .refresh-btn {
+            padding: 0.4rem 0.6rem;
+            font-size: 0.85rem;
+            min-width: 50px;
+            flex: 0 0 auto !important;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .container-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1rem;
+        }
+
+        .container-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+
+        .container-card:hover {
+            border-color: var(--accent-primary);
+        }
+
+        .container-header {
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .container-name {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .container-status {
+            padding: 0.25rem 0.5rem;
+            border-radius: 1rem;
+            font-size: 0.7rem;
+            font-weight: 500;
+            margin-left: 0.5rem;
+        }
+
+        .status-running {
+            background: var(--accent-success);
+            color: white;
+        }
+
+        .status-stopped {
+            background: var(--accent-error);
+            color: white;
+        }
+
+        .container-body {
+            padding: 0.75rem;
+        }
+
+        .container-image {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
+            word-break: break-all;
+        }
+
+        .container-stats {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .btn {
+            padding: 0.5rem;
+            border: none;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            flex: 1;
+            min-width: 80px;
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            color: white;
+        }
+
+        .btn-success {
+            background: var(--accent-success);
+            color: white;
+        }
+
+        .btn-error {
+            background: var(--accent-error);
+            color: white;
+        }
+
+        .btn-warning {
+            background: var(--accent-warning);
+            color: white;
+        }
+
+        .btn:disabled {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            cursor: not-allowed;
+        }
+
+        .btn:not(:disabled):hover {
+            filter: brightness(1.1);
+        }
+
+        #compose-editor {
+            width: 100%;
+            height: calc(100vh - 200px);
+            min-height: 300px;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 0.85rem;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            resize: vertical;
+            outline: none;
+        }
+
+        #compose-editor:focus {
+            border-color: var(--accent-primary);
+        }
+
+        .editor-actions {
+            margin-top: 1rem;
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .message {
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            border-radius: 0.25rem;
+            display: none;
+            font-size: 0.85rem;
+        }
+
+        .message.success {
+            background: var(--accent-success);
+            color: white;
+        }
+
+        .message.error {
+            background: var(--accent-error);
+            color: white;
+        }
+
+        .no-containers {
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 2rem;
+            font-size: 1rem;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            overflow-y: auto;
+        }
+
+        .modal-content {
+            background: var(--bg-card);
+            width: 90%;
+            max-width: 700px;
+            margin: 5% auto;
+            border-radius: 0.5rem;
+            padding: 1rem;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .modal-header h2 {
+            font-size: 1.25rem;
+        }
+
+        .modal-body pre {
+            background: var(--bg-secondary);
+            padding: 0.75rem;
+            max-height: 60vh;
+            overflow-y: auto;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        @media (max-width: 640px) {
+            .container-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .container {
+                padding: 0.25rem;
+            }
+
+            header {
+                padding: 0;
+            }
+            .logo {
+                max-height: 40px;
+            }
+            .tabs {
+                padding: 0.2rem;
+                gap: 0.25rem;
+            }
+
+            .tab {
+                padding: 0.4rem 0.8rem;
+                font-size: 0.8rem;
+            }
+
+            .refresh-btn {
+                padding: 0.3rem 0.5rem;
+                font-size: 0.75rem;
+                min-width: 45px;
+                flex: 0 0 auto !important;
+                cursor: pointer;
+                pointer-events: auto;
+            }
+
+            .container-header {
+                flex-direction: row;
+                align-items: center;
+                gap: 0.25rem;
+            }
+
+            .container-name {
+                font-size: 0.9rem;
+            }
+
+            .container-status {
+                font-size: 0.65rem;
+                margin-left: 0.25rem;
+            }
+
+            .actions {
+                flex-direction: row;
+                flex-wrap: wrap;
+                gap: 0.25rem;
+            }
+
+            .btn {
+                padding: 0.4rem 0.6rem;
+                font-size: 0.75rem;
+                min-width: 60px;
+                flex: 0 1 auto;
+            }
+
+            .editor-actions {
+                flex-direction: column;
+            }
+
+            .modal-content {
+                width: 95%;
+                margin: 2% auto;
+            }
+
+            .no-containers {
+                padding: 1rem;
+                font-size: 0.95rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Composr</h1>
+        </header>
+
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('containers')">Containers</button>
+            <button class="tab" onclick="switchTab('compose')">Compose Editor</button>
+            <button onclick="refreshContainers()" class="btn btn-primary refresh-btn">Refresh</button>
+        </div>
+
+        <div id="message" class="message"></div>
+
+        <div id="containers-tab" class="tab-content active">
+            <div id="no-containers" class="no-containers" style="display: none;">No containers found.</div>
+            <div id="containers-list" class="container-grid"></div>
+        </div>
+
+        <div id="compose-tab" class="tab-content">
+            <textarea id="compose-editor"></textarea>
+            <div class="editor-actions">
+                <button onclick="saveCompose()" class="btn btn-primary">Save Compose</button>
+                <button onclick="applyCompose()" class="btn btn-success">Apply Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="logs-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Container Logs</h2>
+                <button class="btn btn-error" onclick="closeLogs()">Close</button>
+            </div>
+            <div class="modal-body">
+                <pre id="logs-content"></pre>
+            </div>
+        </div>
+    </div>
+
+    <div id="inspect-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Container Details</h2>
+                <button class="btn btn-error" onclick="closeInspect()">Close</button>
+            </div>
+            <div class="modal-body">
+                <pre id="inspect-content"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+            document.querySelector(`[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(`${tabName}-tab`).classList.add('active');
+
+            if (tabName === 'compose') {
+                loadCompose();
+            }
+        }
+
+        function showMessage(type, text) {
+            const message = document.getElementById('message');
+            message.className = `message ${type}`;
+            message.textContent = text;
+            message.style.display = 'block';
+            setTimeout(() => {
+                message.style.display = 'none';
+            }, 3000);
+        }
+
+        async function refreshContainers() {
+            try {
+                const response = await fetch('/api/containers');
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
+                }
+                const containers = await response.json();
+                const list = document.getElementById('containers-list');
+                const noContainers = document.getElementById('no-containers');
+                list.innerHTML = '';
+
+                if (!Array.isArray(containers) || containers.length === 0) {
+                    noContainers.style.display = 'block';
+                    return;
+                }
+
+                noContainers.style.display = 'none';
+
+                containers.forEach(container => {
+                    const card = document.createElement('div');
+                    card.className = 'container-card';
+                    card.innerHTML = `
+                        <div class="container-header">
+                            <span class="container-name">${container.name}</span>
+                            <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
+                        </div>
+                        <div class="container-body">
+                            <div class="container-image">Image: ${container.image}</div>
+                            <div class="container-stats" id="stats-${container.id}">
+                                <div>CPU: <span id="cpu-${container.id}">--</span></div>
+                                <div>Memory: <span id="mem-${container.id}">--</span></div>
+                            </div>
+                            <div class="actions">
+                                <button class="btn btn-success" onclick="containerAction('${container.id}', 'start')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
+                                <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
+                                <button class="btn btn-warning" onclick="containerAction('${container.id}', 'restart')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
+                                <button class="btn btn-error" onclick="deleteContainer('${container.id}')" ${container.status === 'running' ? 'disabled' : ''}>Delete</button>
+                                <button class="btn btn-primary" onclick="showLogs('${container.id}')">Logs</button>
+                                <button class="btn btn-primary" onclick="showInspect('${container.id}')">Inspect</button>
+                            </div>
+                        </div>
+                    `;
+                    list.appendChild(card);
+
+                    if (container.status === 'running') {
+                        fetchStats(container.id);
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to refresh containers:', error);
+                showMessage('error', 'Failed to refresh containers: ' + error.message);
+                document.getElementById('no-containers').style.display = 'block';
+            }
+        }
+
+        async function containerAction(id, action) {
+            try {
+                const response = await fetch(`/api/container/${id}/${action}`, { method: 'POST' });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    showMessage('success', `Container ${action}ed successfully`);
+                    refreshContainers();
+                } else {
+                    showMessage('error', result.message);
+                }
+            } catch (error) {
+                showMessage('error', 'Failed to perform action: ' + error.message);
+            }
+        }
+
+        async function deleteContainer(containerId) {
+            if (!confirm('Are you sure you want to delete this container?')) return;
+            try {
+                const response = await fetch(`/api/container/${containerId}/delete`, { method: 'POST' });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    showMessage('success', 'Container deleted successfully');
+                    refreshContainers();
+                } else {
+                    showMessage('error', result.message);
+                }
+            } catch (error) {
+                showMessage('error', 'Failed to delete container: ' + error.message);
+            }
+        }
+
+        async function showLogs(containerId) {
+            try {
+                const response = await fetch(`/api/container/${containerId}/logs`);
+                const result = await response.json();
+                if (result.status === 'success') {
+                    document.getElementById('logs-content').textContent = result.logs || 'No logs available';
+                    document.getElementById('logs-modal').style.display = 'block';
+                } else {
+                    showMessage('error', result.message);
+                }
+            } catch (error) {
+                showMessage('error', 'Failed to fetch logs: ' + error.message);
+            }
+        }
+
+        function closeLogs() {
+            document.getElementById('logs-modal').style.display = 'none';
+            document.getElementById('logs-content').textContent = '';
+        }
+
+        async function showInspect(containerId) {
+            try {
+                const response = await fetch(`/api/container/${containerId}/inspect`);
+                const result = await response.json();
+                if (result.status === 'success') {
+                    const formatted = JSON.stringify(result.data, null, 2);
+                    document.getElementById('inspect-content').textContent = formatted;
+                    document.getElementById('inspect-modal').style.display = 'block';
+                } else {
+                    showMessage('error', result.message);
+                }
+            } catch (error) {
+                showMessage('error', 'Failed to inspect container: ' + error.message);
+            }
+        }
+
+        function closeInspect() {
+            document.getElementById('inspect-modal').style.display = 'none';
+            document.getElementById('inspect-content').textContent = '';
+        }
+
+        async function fetchStats(containerId) {
+            try {
+                const response = await fetch(`/api/container/${containerId}/stats`);
+                const result = await response.json();
+                if (result.status === 'success') {
+                    document.getElementById(`cpu-${containerId}`).textContent = result.cpu;
+                    document.getElementById(`mem-${containerId}`).textContent = result.memory;
+                }
+            } catch (error) {
+                console.error('Failed to fetch stats:', error);
+            }
+        }
+
+        async function loadCompose() {
+            try {
+                const response = await fetch('/api/compose');
+                const result = await response.json();
+                if (result.content) {
+                    document.getElementById('compose-editor').value = result.content;
+                } else {
+                    showMessage('error', `Failed to load compose file: ${result.message || 'Unknown error'}`);
+                }
+            } catch (error) {
+                showMessage('error', 'Failed to load compose file: ' + error.message);
+            }
+        }
+
+        async function saveCompose() {
+            try {
+                const content = document.getElementById('compose-editor').value;
+                const response = await fetch('/api/compose', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    showMessage('success', 'Compose file saved successfully');
+                } else {
+                    showMessage('error', result.message);
+                }
+            } catch (error) {
+                showMessage('error', 'Failed to save compose file: ' + error.message);
+            }
+        }
+
+        async function applyCompose() {
+            try {
+                const response = await fetch('/api/compose/apply', { method: 'POST' });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    showMessage('success', 'Changes applied successfully');
+                    refreshContainers();
+                } else {
+                    showMessage('error', result.message);
+                }
+            } catch (error) {
+                showMessage('error', 'Failed to apply changes: ' + error.message);
+            }
+        }
+
+        // Initial load
+        refreshContainers();
+    </script>
+</body>
+</html>
