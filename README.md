@@ -1,5 +1,7 @@
 # Composr, Docker Container Manager
 
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/vansmak)
+
 A web-based interface for managing Docker containers and docker-compose configurations.
 
 ## Features
