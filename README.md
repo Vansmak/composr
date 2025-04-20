@@ -23,6 +23,33 @@ A web-based interface for managing Docker containers and docker-compose configur
 - Flask and docker Python packages (see requirements.txt)
 
 ## Installation
+## Quick Start with Docker Hub
+
+The easiest way to use this application is to add it directly to your existing docker-compose.yml file:
+
+```yaml
+services:
+  # Your existing services here...
+  
+  docker-manager:
+    image: vansmak/docker-manager:latest
+    container_name: docker_manager
+    ports:
+      - "5003:5003"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker-compose.yml:/path/to/your/docker-compose.yml
+    restart: unless-stopped
+```
+
+Then run:
+```bash
+docker compose up -d
+```
+
+Access the web interface at: http://localhost:5003
+
+## Building from Source
 
 1. Clone this repository:
 ```bash
