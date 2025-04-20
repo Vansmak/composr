@@ -24,7 +24,7 @@ A web-based interface for managing Docker containers and docker-compose configur
 
 1. Clone this repository:
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/Vansmak/composr
 cd docker-manager
 ```
 
@@ -33,9 +33,9 @@ cd docker-manager
 pip install -r requirements.txt
 ```
 
-3. Configure the path to your docker-compose.yml file in app.py:
+3. Configure the path to your docker-compose.yml file you want to manage in app.py:
 ```python
-COMPOSE_PATH = '/path/to/your/docker-compose.yml'
+COMPOSE_PATH = '/path/to/your/docker-compose.yml' #not composr
 ```
 
 ## Running the Application
