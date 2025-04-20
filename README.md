@@ -1,3 +1,5 @@
+![composr1](https://github.com/user-attachments/assets/05402063-aa5f-41bb-a69a-9c2d49069cef)
+
 # Composr, Docker Container Manager
 
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/vansmak)
