@@ -23,43 +23,115 @@ COMPOSE_DIR = os.getenv('COMPOSE_DIR', '/app/projects')
 def index():
     return render_template('index.html')
 
+
 @app.route('/api/containers')
 def get_containers():
     if client is None:
         logger.error("Docker client not initialized")
-        return jsonify([])  # Return empty list to match original behavior
+        return jsonify([])
     
     try:
         containers = []
         for container in client.containers.list(all=True):
+            labels = container.labels
+            compose_project = labels.get('com.docker.compose.project', None)
+            compose_config_files = labels.get('com.docker.compose.project.config_files', None)
+            compose_working_dir = labels.get('com.docker.compose.project.working_dir', None)
+            
+            compose_file = None
+            if compose_config_files:
+                # Get full relative path from COMPOSE_DIR
+                try:
+                    file_path = compose_config_files.split(',')[0]  # Get first file if multiple
+                    if os.path.exists(file_path):
+                        compose_file = os.path.relpath(file_path, COMPOSE_DIR)
+                    elif compose_working_dir and os.path.exists(compose_working_dir):
+                        # Try to get path from working directory and filename 
+                        base_name = os.path.basename(file_path)
+                        possible_path = os.path.join(compose_working_dir, base_name)
+                        if os.path.exists(possible_path):
+                            compose_file = os.path.relpath(possible_path, COMPOSE_DIR)
+                        else:
+                            compose_file = base_name  # Fallback to just the filename
+                    else:
+                        compose_file = os.path.basename(file_path)
+                except Exception as e:
+                    logger.error(f"Error getting compose file path: {e}")
+                    compose_file = os.path.basename(file_path) if file_path else None
+            
             containers.append({
                 'id': container.short_id,
                 'name': container.name,
                 'status': container.status,
-                'image': container.image.tags[0] if container.image.tags else 'unknown'
+                'image': container.image.tags[0] if container.image.tags else 'unknown',
+                'compose_project': compose_project,
+                'compose_file': compose_file
             })
-        # Add sorting here
         containers.sort(key=lambda x: x['name'].lower())
         logger.debug(f"Retrieved {len(containers)} containers")
         return jsonify(containers)
     except Exception as e:
         logger.error(f"Failed to list containers: {e}")
-        return jsonify([])  # Return empty list to avoid breaking frontend
+        return jsonify([])
 
-# Add this new function
+@app.route('/api/container/<container_id>/compose', methods=['GET'])
+def get_container_compose(container_id):
+    if client is None:
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+    
+    try:
+        container = client.containers.get(container_id)
+        labels = container.labels
+        compose_config_files = labels.get('com.docker.compose.project.config_files', None)
+        
+        if not compose_config_files:
+            return jsonify({'status': 'error', 'message': 'No compose file found for this container'})
+        
+        # Get the first config file
+        file_path = compose_config_files.split(',')[0]
+        
+        if not os.path.exists(file_path):
+            return jsonify({'status': 'error', 'message': f'Compose file not found: {file_path}'})
+        
+        # Get relative path from COMPOSE_DIR
+        relative_path = os.path.relpath(file_path, COMPOSE_DIR)
+        
+        with open(file_path, 'r') as f:
+            content = f.read()
+        
+        return jsonify({
+            'status': 'success', 
+            'file': relative_path,
+            'content': content
+        })
+    except Exception as e:
+        logger.error(f"Failed to get compose file for container {container_id}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# Keep all the rest of your functions
 @app.route('/api/compose/files')
 def get_compose_files():
     try:
         compose_files = []
+        logger.debug(f"Searching for compose files in: {COMPOSE_DIR}")
+        
+        if not os.path.exists(COMPOSE_DIR):
+            logger.error(f"COMPOSE_DIR doesn't exist: {COMPOSE_DIR}")
+            return jsonify({'files': [], 'error': f'Directory not found: {COMPOSE_DIR}'})
+        
         for root, dirs, files in os.walk(COMPOSE_DIR):
+            logger.debug(f"Searching in directory: {root}")
             for file in files:
                 if file in ['docker-compose.yml', 'compose.yml'] or file.startswith('docker-compose.'):
                     file_path = os.path.join(root, file)
                     relative_path = os.path.relpath(file_path, COMPOSE_DIR)
                     compose_files.append(relative_path)
-        compose_files.sort()  # Sort alphabetically
+                    logger.debug(f"Found compose file: {relative_path}")
+        
+        logger.debug(f"Total compose files found: {len(compose_files)}")
         return jsonify({'files': compose_files})
     except Exception as e:
+        logger.error(f"Failed to find compose files: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
 @app.route('/api/container/<container_id>/<action>', methods=['POST'])
@@ -165,7 +237,6 @@ def get_container_stats(container_id):
         logger.error(f"Failed to get stats for container {container_id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
-# Replace the get_compose function
 @app.route('/api/compose', methods=['GET'])
 def get_compose():
     try:
@@ -196,7 +267,6 @@ def get_compose():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
-# Replace the save_compose function
 @app.route('/api/compose', methods=['POST'])
 def save_compose():
     try:
@@ -218,7 +288,6 @@ def save_compose():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
-# Replace the apply_compose function
 @app.route('/api/compose/apply', methods=['POST'])
 def apply_compose():
     try:
