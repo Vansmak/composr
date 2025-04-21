@@ -37,7 +37,12 @@
             margin: 0 auto;
             padding: 0.5rem;
         }
-
+        .container-compose {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 0.25rem;
+            word-break: break-all;
+        }
         header {
             padding: 0;
             margin-bottom: 0.5rem;
@@ -45,11 +50,16 @@
             display: flex;
             align-items: center;
         }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+        }
+
         .logo {
-            max-height: 56px;
-            height: auto;
+            height: 40px;
             width: auto;
-            display: block;
+            background: transparent;
         }
 
         .tabs {
@@ -406,13 +416,14 @@
 <body>
     <div class="container">
         <header>
-            <h1>Composr</h1>
+            <object data="/static/logo.svg" type="image/svg+xml" class="logo"></object>
         </header>
 
         <div class="tabs">
             <button class="tab active" onclick="switchTab('containers')">Containers</button>
             <button class="tab" onclick="switchTab('compose')">Compose Editor</button>
             <button onclick="refreshContainers()" class="btn btn-primary refresh-btn">Refresh</button>
+            <button id="back-button" onclick="switchTab('containers')" class="btn btn-warning refresh-btn" style="display: none;">Back</button>
         </div>
 
         <div id="message" class="message"></div>
@@ -464,17 +475,42 @@
         let currentComposeFile = '';
 
         function loadComposeFiles() {
+            console.log("Loading compose files...");
             fetch('/api/compose/files')
-                .then(response => response.json())
+                .then(response => {
+                    console.log("Response status:", response.status);
+                    return response.json();
+                })
                 .then(data => {
+                    console.log("Files data:", data);
                     const select = document.getElementById('compose-files');
                     select.innerHTML = '<option value="">Select a compose file...</option>';
-                    data.files.forEach(file => {
+                    
+                    if (data.files && Array.isArray(data.files) && data.files.length > 0) {
+                        console.log("Found", data.files.length, "compose files");
+                        data.files.forEach(file => {
+                            const option = document.createElement('option');
+                            option.value = file;
+                            option.textContent = file;
+                            select.appendChild(option);
+                        });
+                        
+                        if (currentComposeFile) {
+                            console.log("Setting dropdown to current file:", currentComposeFile);
+                            select.value = currentComposeFile;
+                        }
+                    } else {
+                        console.log("No files found in response or empty files array");
                         const option = document.createElement('option');
-                        option.value = file;
-                        option.textContent = file;
+                        option.value = "";
+                        option.textContent = "No compose files found";
+                        option.disabled = true;
                         select.appendChild(option);
-                    });
+                    }
+                })
+                .catch(error => {
+                    console.error("Error loading files:", error);
+                    showMessage('error', 'Failed to load compose files: ' + error.message);
                 });
         }
 
@@ -492,13 +528,13 @@
 
             document.querySelector(`[onclick="switchTab('${tabName}')"]`).classList.add('active');
             document.getElementById(`${tabName}-tab`).classList.add('active');
+            
+            // Show back button only on compose tab
+            document.getElementById('back-button').style.display = tabName === 'compose' ? 'block' : 'none';
 
             if (tabName === 'compose') {
-                if (!currentComposeFile) {
-                    loadComposeFiles();
-                } else {
-                    loadCompose();
-                }
+                // Always load compose files when switching to compose tab
+                loadComposeFiles();
             }
         }
 
@@ -531,35 +567,37 @@
                 noContainers.style.display = 'none';
 
                 containers.forEach(container => {
-                    const card = document.createElement('div');
-                    card.className = 'container-card';
-                    card.innerHTML = `
-                        <div class="container-header">
-                            <span class="container-name">${container.name}</span>
-                            <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
-                        </div>
-                        <div class="container-body">
-                            <div class="container-image">Image: ${container.image}</div>
-                            <div class="container-stats" id="stats-${container.id}">
-                                <div>CPU: <span id="cpu-${container.id}">--</span></div>
-                                <div>Memory: <span id="mem-${container.id}">--</span></div>
-                            </div>
-                            <div class="actions">
-                                <button class="btn btn-success" onclick="containerAction('${container.id}', 'start')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
-                                <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
-                                <button class="btn btn-warning" onclick="containerAction('${container.id}', 'restart')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
-                                <button class="btn btn-error" onclick="deleteContainer('${container.id}')" ${container.status === 'running' ? 'disabled' : ''}>Delete</button>
-                                <button class="btn btn-primary" onclick="showLogs('${container.id}')">Logs</button>
-                                <button class="btn btn-primary" onclick="showInspect('${container.id}')">Inspect</button>
-                            </div>
-                        </div>
-                    `;
-                    list.appendChild(card);
+    const card = document.createElement('div');
+    card.className = 'container-card';
+    card.innerHTML = `
+        <div class="container-header">
+            <span class="container-name">${container.name}</span>
+            <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
+        </div>
+        <div class="container-body">
+            <div class="container-image">Image: ${container.image}</div>
+            ${container.compose_file ? `<div class="container-compose">Compose File: ${container.compose_file}</div>` : ''}
+            <div class="container-stats" id="stats-${container.id}">
+                <div>CPU: <span id="cpu-${container.id}">--</span></div>
+                <div>Memory: <span id="mem-${container.id}">--</span></div>
+            </div>
+            <div class="actions">
+                <button class="btn btn-success" onclick="containerAction('${container.id}', 'start')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
+                <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
+                <button class="btn btn-warning" onclick="containerAction('${container.id}', 'restart')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
+                ${container.compose_file ? `<button class="btn btn-primary" onclick="editContainerCompose('${container.id}')">Edit</button>` : ''}
+                <button class="btn btn-error" onclick="deleteContainer('${container.id}')" ${container.status === 'running' ? 'disabled' : ''}>Delete</button>
+                <button class="btn btn-primary" onclick="showLogs('${container.id}')">Logs</button>
+                <button class="btn btn-primary" onclick="showInspect('${container.id}')">Inspect</button>
+            </div>
+        </div>
+    `;
+    list.appendChild(card);
 
-                    if (container.status === 'running') {
-                        fetchStats(container.id);
-                    }
-                });
+    if (container.status === 'running') {
+        fetchStats(container.id);
+    }
+});
             } catch (error) {
                 console.error('Failed to refresh containers:', error);
                 showMessage('error', 'Failed to refresh containers: ' + error.message);
@@ -651,7 +689,38 @@
                 console.error('Failed to fetch stats:', error);
             }
         }
-
+        async function editContainerCompose(containerId) {
+            try {
+                const response = await fetch(`/api/container/${containerId}/compose`);
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    // Switch to compose tab
+                    switchTab('compose');
+                    
+                    // Set the current file
+                    currentComposeFile = result.file;
+                    console.log("Setting current file to:", currentComposeFile);
+                    
+                    // Load the content into the editor directly instead of calling loadCompose
+                    document.getElementById('compose-editor').value = result.content;
+                    
+                    // Set the dropdown value after files are loaded
+                    setTimeout(() => {
+                        const select = document.getElementById('compose-files');
+                        select.value = currentComposeFile;
+                        console.log("Set dropdown value to:", currentComposeFile);
+                    }, 500); // Give time for loadComposeFiles to complete
+                    
+                    // Show a message
+                    showMessage('success', `Editing compose file: ${currentComposeFile}`);
+                } else {
+                    showMessage('error', result.message);
+                }
+            } catch (error) {
+                showMessage('error', 'Failed to load compose file: ' + error.message);
+            }
+        }
         async function loadCompose() {
             try {
                 const url = currentComposeFile ? 
@@ -722,8 +791,10 @@
         }
 
         // Initial load
-        refreshContainers();
-        loadComposeFiles();
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshContainers();
+            loadComposeFiles();
+        });
     </script>
 </body>
 </html>
