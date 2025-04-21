@@ -1,4 +1,5 @@
-![composr1](https://github.com/user-attachments/assets/05402063-aa5f-41bb-a69a-9c2d49069cef)
+![logo](https://github.com/user-attachments/assets/1266525a-c298-4abb-b86a-b8afdd57bcdb)
+
 
 # Composr, Docker Container Manager
 
@@ -32,8 +33,8 @@ If you manage containers with multiple docker-compose files in different directo
 
 ```yaml
 docker-manager:
-  image: vansmak/docker-manager:latest
-  container_name: docker_manager
+  image: vansmak/composr:latest
+  container_name: composr
   ports:
     - "5003:5003"
   volumes:
@@ -56,7 +57,7 @@ Access the web interface at: http://localhost:5003
 1. Clone this repository:
 ```bash
 git clone https://github.com/Vansmak/composr
-cd docker-manager
+cd composr
 ```
 
 2. Install dependencies:
@@ -79,7 +80,7 @@ Access the web interface at: http://localhost:5003
 
 ### Option 2: Run with Docker
 ```bash
-docker build -t docker-manager .
+docker build -t composr .
 docker compose up -d
 ```
 
