@@ -50,8 +50,6 @@ docker compose up -d
 ```
 
 Access the web interface at: http://localhost:5003
-## Configuration for Multiple Compose Files
-
 
 ## Building from Source
 
@@ -68,7 +66,7 @@ pip install -r requirements.txt
 
 3. Configure the path to your docker-compose.yml file you want to manage in app.py:
 ```python
-COMPOSE_PATH = '/path/to/your/docker-compose.yml' #not composr
+COMPOSE_DIR = '/path/to/your/projects' #parent dir
 ```
 
 ## Running the Application
@@ -99,7 +97,7 @@ docker-manager/
 
 ## Configuration
 
-The application expects a specific path to your docker-compose.yml file. Make sure to update the `COMPOSE_PATH` variable in app.py before running.
+The application expects a specific path to your parent DirectoRy before your docker-compose.yml files. Make sure to update the `COMPOSE_DIR` variable in app.py before running.
 
 ## Security Notice
 
