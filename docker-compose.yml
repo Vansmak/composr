@@ -1,11 +1,25 @@
 services:
   docker-manager:
     build: .
-    container_name: docker-manager
+    container_name: composr
     volumes:
+      # Mount project directory into container
       - .:/app
+      
+      # Allow Docker socket access for container management
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/joe/media-server:/home/joe/media-server
+      
+      # Optional: Mount a user-specific directory if needed
+      # Replace '/path/to/your/directory' with the actual path you want to use
+      - /path/to/your/directory:/home/user
+    
+    environment:
+      # Set compose directory 
+      - COMPOSE_DIR=/home
+    
     ports:
+      # Expose container port 5003 to host
       - "5003:5003"
+    
+    # Automatically restart unless explicitly stopped
     restart: unless-stopped
