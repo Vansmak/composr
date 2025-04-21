@@ -306,6 +306,25 @@
             word-break: break-all;
         }
 
+        .compose-file-selector {
+            margin-bottom: 1rem;
+        }
+
+        #compose-files {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.25rem;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            outline: none;
+        }
+
+        #compose-files:focus {
+            border-color: var(--accent-primary);
+        }
+
         @media (max-width: 640px) {
             .container-grid {
                 grid-template-columns: 1fr;
@@ -404,6 +423,11 @@
         </div>
 
         <div id="compose-tab" class="tab-content">
+            <div class="compose-file-selector">
+                <select id="compose-files" onchange="loadSelectedFile()">
+                    <option value="">Select a compose file...</option>
+                </select>
+            </div>
             <textarea id="compose-editor"></textarea>
             <div class="editor-actions">
                 <button onclick="saveCompose()" class="btn btn-primary">Save Compose</button>
@@ -437,6 +461,31 @@
     </div>
 
     <script>
+        let currentComposeFile = '';
+
+        function loadComposeFiles() {
+            fetch('/api/compose/files')
+                .then(response => response.json())
+                .then(data => {
+                    const select = document.getElementById('compose-files');
+                    select.innerHTML = '<option value="">Select a compose file...</option>';
+                    data.files.forEach(file => {
+                        const option = document.createElement('option');
+                        option.value = file;
+                        option.textContent = file;
+                        select.appendChild(option);
+                    });
+                });
+        }
+
+        function loadSelectedFile() {
+            const select = document.getElementById('compose-files');
+            currentComposeFile = select.value;
+            if (currentComposeFile) {
+                loadCompose();
+            }
+        }
+
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -445,7 +494,11 @@
             document.getElementById(`${tabName}-tab`).classList.add('active');
 
             if (tabName === 'compose') {
-                loadCompose();
+                if (!currentComposeFile) {
+                    loadComposeFiles();
+                } else {
+                    loadCompose();
+                }
             }
         }
 
@@ -601,10 +654,17 @@
 
         async function loadCompose() {
             try {
-                const response = await fetch('/api/compose');
+                const url = currentComposeFile ? 
+                    `/api/compose?file=${encodeURIComponent(currentComposeFile)}` : 
+                    '/api/compose';
+                    
+                const response = await fetch(url);
                 const result = await response.json();
                 if (result.content) {
                     document.getElementById('compose-editor').value = result.content;
+                    currentComposeFile = result.file;
+                    // Update select to match current file
+                    document.getElementById('compose-files').value = currentComposeFile;
                 } else {
                     showMessage('error', `Failed to load compose file: ${result.message || 'Unknown error'}`);
                 }
@@ -614,12 +674,17 @@
         }
 
         async function saveCompose() {
+            if (!currentComposeFile) {
+                showMessage('error', 'Please select a compose file first');
+                return;
+            }
+            
             try {
                 const content = document.getElementById('compose-editor').value;
                 const response = await fetch('/api/compose', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content })
+                    body: JSON.stringify({ content: content, file: currentComposeFile })
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
@@ -633,8 +698,17 @@
         }
 
         async function applyCompose() {
+            if (!currentComposeFile) {
+                showMessage('error', 'Please select a compose file first');
+                return;
+            }
+            
             try {
-                const response = await fetch('/api/compose/apply', { method: 'POST' });
+                const response = await fetch('/api/compose/apply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file: currentComposeFile })
+                });
                 const result = await response.json();
                 if (result.status === 'success') {
                     showMessage('success', 'Changes applied successfully');
@@ -649,6 +723,7 @@
 
         // Initial load
         refreshContainers();
+        loadComposeFiles();
     </script>
 </body>
 </html>
