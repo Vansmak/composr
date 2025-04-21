@@ -26,20 +26,22 @@ A web-based interface for managing Docker containers and docker-compose configur
 ## Quick Start with Docker Hub
 
 The easiest way to use this application is to add it directly to your existing docker-compose.yml file:
+## Configuration for Multiple Compose Files
+
+If you manage containers with multiple docker-compose files in different directories:
 
 ```yaml
-services:
-  # Your existing services here...
-  
-  docker-manager:
-    image: vansmak/docker-manager:latest
-    container_name: docker_manager
-    ports:
-      - "5003:5003"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./docker-compose.yml:/path/to/your/docker-compose.yml
-    restart: unless-stopped
+docker-manager:
+  image: vansmak/docker-manager:latest
+  container_name: docker_manager
+  ports:
+    - "5003:5003"
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /path/to/your/projects:/app/compose_files
+  environment:
+    - COMPOSE_DIR=/app/compose_files
+  restart: unless-stopped
 ```
 
 Then run:
@@ -48,6 +50,8 @@ docker compose up -d
 ```
 
 Access the web interface at: http://localhost:5003
+## Configuration for Multiple Compose Files
+
 
 ## Building from Source
 
