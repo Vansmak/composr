@@ -17,63 +17,104 @@
             --accent-warning: #ff9800;
             --border-color: #404040;
         }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             line-height: 1.5;
-            overscroll-behavior: none;
         }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0.5rem;
+        .loading-spinner {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--bg-card);
+            padding: 1rem 2rem;
+            border-radius: 0.5rem;
+            z-index: 1000;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         }
-        .container-compose {
-            color: var(--text-secondary);
-            font-size: 0.85rem;
-            margin-bottom: 0.25rem;
-            word-break: break-all;
+        .stats-updating {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(33, 150, 243, 0.2);
+            color: var(--text-primary);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            opacity: 0.8;
         }
+        .container { max-width: 1200px; margin: 0 auto; padding: 0.5rem; }
         header {
-            padding: 0;
-            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            margin-bottom: 0.25rem;
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.5rem;
         }
-
-        .header-content {
-            display: flex;
-            align-items: center;
-        }
-
         .logo {
-            height: 40px;
+            max-height: 48px;
             width: auto;
-            background: transparent;
+            #transform: scale(1.7);
+            transform-origin: left center;
         }
-
+        .filter-controls {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            align-items: center;
+            max-width: 600px;
+        }
+        .filter-input, .filter-select {
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.25rem;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            outline: none;
+            flex: 1;
+            min-width: 120px;
+        }
+        .filter-input:focus, .filter-select:focus { border-color: var(--accent-primary); }
+        .system-stats {
+            background: var(--bg-card);
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 0.85rem;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.5rem;
+        }
+        .stat-item { display: flex; flex-direction: column; }
+        .progress-bar {
+            height: 8px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 0.25rem;
+        }
+        .progress-fill {
+            height: 100%;
+            background: var(--accent-primary);
+            transition: width 0.3s;
+        }
         .tabs {
             display: flex;
-            align-items: center;
             gap: 0.5rem;
             margin-bottom: 0.5rem;
             background: var(--bg-secondary);
             padding: 0.25rem;
             border-radius: 0.5rem;
-            overflow-x: auto;
-            flex-wrap: nowrap;
         }
-
         .tab {
             padding: 0.5rem 1rem;
             border: none;
@@ -82,50 +123,30 @@
             border-radius: 0.25rem;
             cursor: pointer;
             font-size: 0.875rem;
-            transition: all 0.2s;
-            white-space: nowrap;
         }
-
-        .tab.active {
-            background: var(--accent-primary);
-            color: white;
-        }
-
-        .refresh-btn {
+        .tab.active { background: var(--accent-primary); color: white; }
+        .refresh-btn, .scan-btn {
             padding: 0.4rem 0.6rem;
             font-size: 0.85rem;
             min-width: 50px;
-            flex: 0 0 auto !important;
             cursor: pointer;
-            pointer-events: auto;
+            background: var(--accent-primary);
+            color: white;
+            border: none;
+            border-radius: 0.25rem;
         }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
         .container-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 1rem;
         }
-
         .container-card {
             background: var(--bg-card);
             border: 1px solid var(--border-color);
             border-radius: 0.5rem;
-            overflow: hidden;
-            transition: border-color 0.2s;
         }
-
-        .container-card:hover {
-            border-color: var(--accent-primary);
-        }
-
         .container-header {
             padding: 0.75rem;
             border-bottom: 1px solid var(--border-color);
@@ -134,383 +155,484 @@
             flex-wrap: wrap;
             gap: 0.5rem;
         }
-
-        .container-name {
-            font-weight: 600;
-            font-size: 0.95rem;
-        }
-
+        .container-name { font-weight: 600; font-size: 0.95rem; }
         .container-status {
             padding: 0.25rem 0.5rem;
             border-radius: 1rem;
             font-size: 0.7rem;
             font-weight: 500;
-            margin-left: 0.5rem;
         }
-
-        .status-running {
-            background: var(--accent-success);
+        .status-running { background: var(--accent-success); color: white; }
+        .status-stopped { background: var(--accent-error); color: white; }
+        .uptime-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 1rem;
+            font-size: 0.7rem;
+            background: var(--accent-warning);
             color: white;
         }
-
-        .status-stopped {
-            background: var(--accent-error);
-            color: white;
-        }
-
-        .container-body {
-            padding: 0.75rem;
-        }
-
-        .container-image {
-            color: var(--text-secondary);
-            font-size: 0.85rem;
-            margin-bottom: 0.75rem;
-            word-break: break-all;
-        }
-
-        .container-stats {
+        .uptime-long { background: var(--accent-success); }
+        .container-body { padding: 0.75rem; }
+        .container-image, .container-stats {
             color: var(--text-secondary);
             font-size: 0.85rem;
             margin-bottom: 0.75rem;
         }
-
-        .actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-
+        .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
         .btn {
             padding: 0.5rem;
             border: none;
             border-radius: 0.25rem;
             cursor: pointer;
             font-size: 0.85rem;
-            font-weight: 500;
-            transition: all 0.2s;
             flex: 1;
             min-width: 80px;
         }
-
-        .btn-primary {
-            background: var(--accent-primary);
-            color: white;
-        }
-
-        .btn-success {
-            background: var(--accent-success);
-            color: white;
-        }
-
-        .btn-error {
-            background: var(--accent-error);
-            color: white;
-        }
-
-        .btn-warning {
-            background: var(--accent-warning);
-            color: white;
-        }
-
-        .btn:disabled {
-            background: var(--bg-secondary);
-            color: var(--text-secondary);
-            cursor: not-allowed;
-        }
-
-        .btn:not(:disabled):hover {
-            filter: brightness(1.1);
-        }
-
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-success { background: var(--accent-success); color: white; }
+        .btn-error { background: var(--accent-error); color: white; }
+        .btn:disabled { background: var(--bg-secondary); color: var(--text-secondary); }
+        .btn:not(:disabled):hover { filter: brightness(1.1); }
         #compose-editor {
             width: 100%;
             height: calc(100vh - 200px);
-            min-height: 300px;
-            font-family: 'Fira Code', 'Consolas', monospace;
-            font-size: 0.85rem;
+            font-family: monospace;
             padding: 0.75rem;
             border: 1px solid var(--border-color);
             border-radius: 0.5rem;
             background: var(--bg-secondary);
             color: var(--text-primary);
-            resize: vertical;
-            outline: none;
         }
-
-        #compose-editor:focus {
-            border-color: var(--accent-primary);
+        #env-editor {
+            width: 100%;
+            height: calc(100vh - 200px);
+            font-family: monospace;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
         }
-
-        .editor-actions {
+        .editor-actions, .compose-file-selector {
             margin-top: 1rem;
             display: flex;
             gap: 0.5rem;
-            flex-wrap: wrap;
+            align-items: center;
         }
-
         .message {
             padding: 0.75rem;
             margin-bottom: 1rem;
             border-radius: 0.25rem;
             display: none;
-            font-size: 0.85rem;
         }
-
-        .message.success {
-            background: var(--accent-success);
-            color: white;
-        }
-
-        .message.error {
-            background: var(--accent-error);
-            color: white;
-        }
-
+        .message.success { background: var(--accent-success); color: white; }
+        .message.error { background: var(--accent-error); color: white; }
         .no-containers {
             text-align: center;
             color: var(--text-secondary);
             padding: 2rem;
-            font-size: 1rem;
         }
-
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.8);
-            z-index: 1000;
-            overflow-y: auto;
-        }
-
-        .modal-content {
-            background: var(--bg-card);
-            width: 90%;
-            max-width: 700px;
-            margin: 5% auto;
-            border-radius: 0.5rem;
-            padding: 1rem;
-        }
-
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-
-        .modal-header h2 {
-            font-size: 1.25rem;
-        }
-
-        .modal-body pre {
-            background: var(--bg-secondary);
-            padding: 0.75rem;
-            max-height: 60vh;
-            overflow-y: auto;
-            font-size: 0.85rem;
-            white-space: pre-wrap;
-            word-break: break-all;
-        }
-
-        .compose-file-selector {
-            margin-bottom: 1rem;
-        }
-
-        #compose-files {
-            width: 100%;
-            padding: 0.5rem;
-            border: 1px solid var(--border-color);
-            border-radius: 0.25rem;
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-            font-size: 0.9rem;
-            outline: none;
-        }
-
-        #compose-files:focus {
-            border-color: var(--accent-primary);
-        }
-
         @media (max-width: 640px) {
-            .container-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .container {
-                padding: 0.25rem;
-            }
-
-            header {
-                padding: 0;
-            }
-            .logo {
-                max-height: 40px;
-            }
-            .tabs {
-                padding: 0.2rem;
-                gap: 0.25rem;
-            }
-
-            .tab {
-                padding: 0.4rem 0.8rem;
-                font-size: 0.8rem;
-            }
-
-            .refresh-btn {
-                padding: 0.3rem 0.5rem;
-                font-size: 0.75rem;
-                min-width: 45px;
-                flex: 0 0 auto !important;
-                cursor: pointer;
-                pointer-events: auto;
-            }
-
-            .container-header {
-                flex-direction: row;
-                align-items: center;
-                gap: 0.25rem;
-            }
-
-            .container-name {
-                font-size: 0.9rem;
-            }
-
-            .container-status {
-                font-size: 0.65rem;
-                margin-left: 0.25rem;
-            }
-
-            .actions {
-                flex-direction: row;
-                flex-wrap: wrap;
-                gap: 0.25rem;
-            }
-
-            .btn {
-                padding: 0.4rem 0.6rem;
-                font-size: 0.75rem;
-                min-width: 60px;
-                flex: 0 1 auto;
-            }
-
-            .editor-actions {
-                flex-direction: column;
-            }
-
-            .modal-content {
-                width: 95%;
-                margin: 2% auto;
-            }
-
-            .no-containers {
-                padding: 1rem;
-                font-size: 0.95rem;
-            }
+            .container-grid { grid-template-columns: 1fr; }
+            .logo { max-height: 48px; transform: scale(1.5); }
+            .filter-controls { flex-direction: column; }
+            .filter-input, .filter-select { min-width: 100%; }
+            .compose-file-selector { flex-direction: column; }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <object data="/static/logo.svg" type="image/svg+xml" class="logo"></object>
+            <img src="/static/logo.svg" alt="Composr Logo" class="logo">
+            <div class="filter-controls">
+                <input type="text" id="search-input" class="filter-input" placeholder="Search containers...">
+                <select id="status-filter" class="filter-select">
+                    
+                    <option value="running">Running</option>
+                    <option value="exited">Stopped</option>
+                </select>
+                <select id="sort-filter" class="filter-select">
+                    <option value="name">Sort by Name</option>
+                    
+                    <option value="cpu">Sort by CPU (high→low)</option>
+                    <option value="memory">Sort by Memory (high→low)</option>
+                    <option value="uptime">Sort by Uptime (high→low)</option>
+                </select>
+            </div>
         </header>
+
+        <div class="system-stats">
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span>Containers: <span id="total-containers">--</span> (<span id="running-containers">--</span> running)</span>
+                </div>
+                <div class="stat-item">
+                    <span>CPU: <span id="cpu-count">--</span> cores</span>
+                </div>
+                <div class="stat-item">
+                    <span>Memory: <span id="memory-usage">--</span> MB / <span id="memory-total">--</span> MB</span>
+                    <div class="progress-bar"><div class="progress-fill" id="memory-progress"></div></div>
+                </div>
+            </div>
+        </div>
 
         <div class="tabs">
             <button class="tab active" onclick="switchTab('containers')">Containers</button>
             <button class="tab" onclick="switchTab('compose')">Compose Editor</button>
-            <button onclick="refreshContainers()" class="btn btn-primary refresh-btn">Refresh</button>
-            <button id="back-button" onclick="switchTab('containers')" class="btn btn-warning refresh-btn" style="display: none;">Back</button>
+            <button class="tab" onclick="switchTab('env')">Env Files</button>
+            <button onclick="refreshContainers()" class="refresh-btn">Refresh</button>
         </div>
-
+        
         <div id="message" class="message"></div>
-
+        
         <div id="containers-tab" class="tab-content active">
             <div id="no-containers" class="no-containers" style="display: none;">No containers found.</div>
             <div id="containers-list" class="container-grid"></div>
         </div>
-
+        
         <div id="compose-tab" class="tab-content">
             <div class="compose-file-selector">
                 <select id="compose-files" onchange="loadSelectedFile()">
                     <option value="">Select a compose file...</option>
                 </select>
+                <button onclick="scanComposeFiles()" class="scan-btn">Scan for Compose Files</button>
             </div>
             <textarea id="compose-editor"></textarea>
             <div class="editor-actions">
                 <button onclick="saveCompose()" class="btn btn-primary">Save Compose</button>
                 <button onclick="applyCompose()" class="btn btn-success">Apply Changes</button>
+                <button onclick="extractEnvVarsToClipboard()" class="btn btn-primary">Extract Env to Clipboard</button>
             </div>
         </div>
-    </div>
-
-    <div id="logs-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Container Logs</h2>
-                <button class="btn btn-error" onclick="closeLogs()">Close</button>
+        
+        <div id="env-tab" class="tab-content">
+            <div class="compose-file-selector">
+                <select id="env-files" onchange="loadEnvFile()">
+                    <option value="">Select an .env file...</option>
+                </select>
+                <button onclick="scanEnvFiles()" class="scan-btn">Scan for .env Files</button>
             </div>
-            <div class="modal-body">
-                <pre id="logs-content"></pre>
-            </div>
-        </div>
-    </div>
-
-    <div id="inspect-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Container Details</h2>
-                <button class="btn btn-error" onclick="closeInspect()">Close</button>
-            </div>
-            <div class="modal-body">
-                <pre id="inspect-content"></pre>
+            <textarea id="env-editor"></textarea>
+            <div class="editor-actions">
+                <button onclick="saveEnvFile()" class="btn btn-primary">Save .env File</button>
             </div>
         </div>
-    </div>
+    
 
     <script>
         let currentComposeFile = '';
+        let currentSort = 'name';
+        let currentEnvFile = '';
 
-        function loadComposeFiles() {
-            console.log("Loading compose files...");
-            fetch('/api/compose/files')
-                .then(response => {
-                    console.log("Response status:", response.status);
-                    return response.json();
-                })
+        function loadEnvForCompose() {
+            const select = document.getElementById('env-compose-files');
+            const composePath = select.value;
+            
+            if (!composePath) return;
+            
+            fetch(`/api/compose/env?compose_path=${encodeURIComponent(composePath)}`)
+                .then(response => response.json())
                 .then(data => {
-                    console.log("Files data:", data);
-                    const select = document.getElementById('compose-files');
-                    select.innerHTML = '<option value="">Select a compose file...</option>';
+                    if (data.status === 'success') {
+                        document.getElementById('env-editor').value = data.content;
+                        currentEnvFile = data.file;
+                        showMessage('success', `Loaded .env file for ${composePath}`);
+                    } else {
+                        document.getElementById('env-editor').value = '# No .env file found, create one here';
+                        currentEnvFile = composePath.replace(/\.ya?ml$/, '') + '/.env';
+                        showMessage('info', 'No .env file found. You can create one.');
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to load .env file:', error);
+                    showMessage('error', 'Failed to load .env file');
+                });
+        }
+
+        // New simplified extract function that just copies to clipboard
+        function extractEnvVarsToClipboard() {
+            if (!currentComposeFile) {
+                showMessage('error', 'Please select a compose file');
+                return;
+            }
+            
+            fetch('/api/compose/extract-env', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    compose_file: currentComposeFile,
+                    modify_compose: false,
+                    save_directly: false
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Create a temporary textarea to copy to clipboard
+                    const textarea = document.createElement('textarea');
+                    textarea.value = data.content;
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
                     
-                    if (data.files && Array.isArray(data.files) && data.files.length > 0) {
-                        console.log("Found", data.files.length, "compose files");
+                    // Show a helpful message with instructions
+                    showMessage('success', 'Environment variables copied to clipboard! To use them:' +
+                                ' 1) Create a .env file in the same directory as your compose file,' +
+                                ' 2) Paste the variables, 3) Add env_file: .env to your compose file');
+                } else {
+                    showMessage('error', data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Failed to extract environment variables:', error);
+                showMessage('error', 'Failed to extract environment variables');
+            });
+        }
+
+        // Fix the scanEnvFiles function
+        function scanEnvFiles() {
+            const searchMessage = document.createElement('div');
+            searchMessage.className = 'loading-spinner';
+            searchMessage.innerHTML = 'Scanning for .env files...';
+            document.querySelector('.container').appendChild(searchMessage);
+            
+            fetch('/api/env/files')
+                .then(response => response.json())
+                .then(data => {
+                    searchMessage.remove();
+                    const select = document.getElementById('env-files');
+                    select.innerHTML = '<option value="">Select an .env file...</option>';
+                    
+                    if (data.files && data.files.length) {
                         data.files.forEach(file => {
                             const option = document.createElement('option');
                             option.value = file;
                             option.textContent = file;
                             select.appendChild(option);
                         });
-                        
-                        if (currentComposeFile) {
-                            console.log("Setting dropdown to current file:", currentComposeFile);
-                            select.value = currentComposeFile;
-                        }
+                        showMessage('success', `Found ${data.files.length} .env files`);
                     } else {
-                        console.log("No files found in response or empty files array");
-                        const option = document.createElement('option');
-                        option.value = "";
-                        option.textContent = "No compose files found";
-                        option.disabled = true;
-                        select.appendChild(option);
+                        showMessage('info', 'No .env files found. Create one by extracting variables from a compose file.');
                     }
                 })
                 .catch(error => {
-                    console.error("Error loading files:", error);
-                    showMessage('error', 'Failed to load compose files: ' + error.message);
+                    searchMessage.remove();
+                    console.error('Failed to scan .env files:', error);
+                    showMessage('error', 'Failed to scan .env files');
+                });
+        }
+
+        // Load selected .env file
+        // Improved loadEnvFile function with better error handling
+        function loadEnvFile() {
+            const select = document.getElementById('env-files');
+            currentEnvFile = select.value;
+            
+            if (!currentEnvFile) {
+                showMessage('error', 'Please select an .env file');
+                return;
+            }
+            
+            // Show loading message
+            showMessage('info', `Loading ${currentEnvFile}...`);
+            
+            fetch(`/api/env/file?path=${encodeURIComponent(currentEnvFile)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.getElementById('env-editor').value = data.content;
+                        showMessage('success', `Loaded .env file: ${currentEnvFile}`);
+                    } else {
+                        document.getElementById('env-editor').value = `# Failed to load ${currentEnvFile}\n# Error: ${data.message}\n\n# You can create a new .env file here`;
+                        showMessage('error', data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to load .env file:', error);
+                    document.getElementById('env-editor').value = `# Failed to load ${currentEnvFile}\n# Error: ${error}\n\n# You can create a new .env file here`;
+                    showMessage('error', 'Failed to load .env file');
+                });
+        }
+
+        // Save current .env file
+        function saveEnvFile() {
+            if (!currentEnvFile) {
+                showMessage('error', 'No .env file selected');
+                return;
+            }
+            
+            const content = document.getElementById('env-editor').value;
+            
+            fetch('/api/env/file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: currentEnvFile, content })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showMessage('success', 'Environment file saved successfully');
+                } else {
+                    showMessage('error', data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Failed to save .env file:', error);
+                showMessage('error', 'Failed to save .env file');
+            });
+        }
+
+        function applyWithEnv() {
+            if (!currentEnvFile || !currentComposeFile) {
+                showMessage('error', 'Both compose file and .env file must be selected');
+                return;
+            }
+            
+            fetch('/api/compose/apply', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    file: currentComposeFile,
+                    env_file: currentEnvFile 
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showMessage('success', 'Changes applied with environment variables');
+                    refreshContainers();
+                } else {
+                    showMessage('error', data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Failed to apply changes:', error);
+                showMessage('error', 'Failed to apply changes');
+            });
+        }
+
+        function extractEnvVars() {
+            if (!currentComposeFile) {
+                showMessage('error', 'Please select a compose file');
+                return;
+            }
+            
+            // Ask user for preferences
+            const modifyCompose = confirm("Would you like to modify the compose file to use the .env file?");
+            const saveDirectly = confirm("Would you like to save changes directly to files?");
+            
+            fetch('/api/compose/extract-env', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    compose_file: currentComposeFile,
+                    modify_compose: modifyCompose,
+                    save_directly: saveDirectly
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    if (saveDirectly) {
+                        // Just show success message
+                        showMessage('success', data.message);
+                        // Reload the compose file if it was modified
+                        if (data.compose_modified) {
+                            loadCompose();
+                        }
+                    } else {
+                        // Show the results for review
+                        switchTab('env');
+                        document.getElementById('env-editor').value = data.content;
+                        currentEnvFile = data.suggested_path;
+                        
+                        // If compose was modified, update the compose editor too
+                        if (data.compose_modified) {
+                            document.getElementById('compose-editor').value = data.compose_content;
+                        }
+                        
+                        showMessage('success', 'Environment variables extracted' + 
+                                (data.compose_modified ? ' and compose file updated' : '') +
+                                '. Please review before saving.');
+                    }
+                } else {
+                    showMessage('error', data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Failed to extract environment variables:', error);
+                showMessage('error', 'Failed to extract environment variables');
+            });
+        }
+        function loadSystemStats() {
+            fetch('/api/system')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.getElementById('total-containers').textContent = data.total_containers || '--';
+                        document.getElementById('running-containers').textContent = data.running_containers || '--';
+                        document.getElementById('cpu-count').textContent = data.cpu_count || '--';
+                        document.getElementById('memory-usage').textContent = data.memory_used || '--';
+                        document.getElementById('memory-total').textContent = data.memory_total || '--';
+                        document.getElementById('memory-progress').style.width = `${data.memory_percent || 0}%`;
+                    } else {
+                        console.error('System stats error:', data.message);
+                        showMessage('error', data.message || 'Failed to load system stats');
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to load system stats:', error);
+                    showMessage('error', 'Failed to load system stats');
+                });
+        }
+
+        function loadComposeFiles() {
+            fetch('/api/compose/files')
+                .then(response => response.json())
+                .then(data => {
+                    const select = document.getElementById('compose-files');
+                    select.innerHTML = '<option value="">Select a compose file...</option>';
+                    if (data.files && data.files.length) {
+                        data.files.forEach(file => {
+                            const option = document.createElement('option');
+                            option.value = file;
+                            option.textContent = file;
+                            select.appendChild(option);
+                        });
+                        if (currentComposeFile) {
+                            select.value = currentComposeFile;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to load compose files:', error);
+                    showMessage('error', 'Failed to load compose files');
+                });
+        }
+
+        function scanComposeFiles() {
+            fetch('/api/compose/scan')
+                .then(response => response.json())
+                .then(data => {
+                    const select = document.getElementById('compose-files');
+                    select.innerHTML = '<option value="">Select a compose file...</option>';
+                    if (data.files && data.files.length) {
+                        data.files.forEach(file => {
+                            const option = document.createElement('option');
+                            option.value = file;
+                            option.textContent = file;
+                            select.appendChild(option);
+                        });
+                        showMessage('success', `Found ${data.files.length} compose files`);
+                    } else {
+                        showMessage('error', 'No compose files found during scan');
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to scan compose files:', error);
+                    showMessage('error', 'Failed to scan compose files');
                 });
         }
 
@@ -525,16 +647,13 @@
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-
             document.querySelector(`[onclick="switchTab('${tabName}')"]`).classList.add('active');
             document.getElementById(`${tabName}-tab`).classList.add('active');
             
-            // Show back button only on compose tab
-            document.getElementById('back-button').style.display = tabName === 'compose' ? 'block' : 'none';
-
             if (tabName === 'compose') {
-                // Always load compose files when switching to compose tab
                 loadComposeFiles();
+            } else if (tabName === 'env') {
+                scanEnvFiles();
             }
         }
 
@@ -543,65 +662,128 @@
             message.className = `message ${type}`;
             message.textContent = text;
             message.style.display = 'block';
-            setTimeout(() => {
-                message.style.display = 'none';
-            }, 3000);
+            setTimeout(() => message.style.display = 'none', 3000);
         }
 
+        // Show/hide loading indicator
+        function setLoading(isLoading) {
+            // No opacity change on the container list to avoid flickering
+            let spinner = document.getElementById('loading-spinner');
+            if (!spinner && isLoading) {
+                spinner = document.createElement('div');
+                spinner.id = 'loading-spinner';
+                spinner.className = 'loading-spinner';
+                spinner.innerHTML = 'Loading containers...';
+                document.querySelector('.container').appendChild(spinner);
+            } else if (spinner && !isLoading) {
+                spinner.remove();
+            }
+        }
+
+        function renderContainers(containers) {
+            const list = document.getElementById('containers-list');
+            const noContainers = document.getElementById('no-containers');
+            list.innerHTML = '';
+
+            if (!Array.isArray(containers) || !containers.length) {
+                noContainers.style.display = 'block';
+                return;
+            }
+
+            noContainers.style.display = 'none';
+            containers.forEach(container => {
+                const card = document.createElement('div');
+                card.className = 'container-card';
+                
+                // Get uptime display with fallback
+                const uptimeDisplay = container.uptime && container.uptime.display 
+                    ? container.uptime.display 
+                    : 'N/A';
+                
+                // Check if uptime includes days for styling
+                const uptimeLong = uptimeDisplay.includes('d') ? 'uptime-long' : '';
+                
+                card.innerHTML = `
+                    <div class="container-header">
+                        <span class="container-name">${container.name}</span>
+                        <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
+                        <span class="uptime-badge ${uptimeLong}">${uptimeDisplay}</span>
+                    </div>
+                    <div class="container-body">
+                        <div class="container-image">Image: ${container.image}</div>
+                        <div class="container-stats">
+                            CPU: ${container.cpu_percent}% | Memory: ${container.memory_usage} MB
+                        </div>
+                        <div class="actions">
+                            <button class="btn btn-success" onclick="containerAction('${container.id}', 'start')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
+                            <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
+                            <button class="btn btn-primary" onclick="containerAction('${container.id}', 'restart')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
+                            <button class="btn btn-primary" onclick="inspectContainer('${container.id}')">Inspect</button>
+                            <button class="btn btn-primary" onclick="viewContainerLogs('${container.id}')">Logs</button>
+                            <button class="btn btn-primary" onclick="editContainerCompose('${container.id}')">Edit</button>
+                        </div>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        let refreshInProgress = false;
+        let refreshTimer = null;
+
         async function refreshContainers() {
+            if (refreshInProgress) return;
+            
             try {
-                const response = await fetch('/api/containers');
+                refreshInProgress = true;
+                
+                // Only show loading indicator on initial load or manual refresh
+                const isInitialOrManualRefresh = !document.getElementById('containers-list').children.length;
+                if (isInitialOrManualRefresh) {
+                    setLoading(true);
+                }
+                
+                const search = document.getElementById('search-input').value;
+                const status = document.getElementById('status-filter').value;
+                const sort = document.getElementById('sort-filter').value || 'name';
+                const url = `/api/containers?search=${encodeURIComponent(search)}&status=${status}&sort=${sort}`;
+                
+                // Do the fetch
+                const response = await fetch(url);
                 if (!response.ok) {
-                    throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
+                    throw new Error(`HTTP error ${response.status}`);
                 }
                 const containers = await response.json();
-                const list = document.getElementById('containers-list');
-                const noContainers = document.getElementById('no-containers');
-                list.innerHTML = '';
-
-                if (!Array.isArray(containers) || containers.length === 0) {
-                    noContainers.style.display = 'block';
-                    return;
+                
+                // Render containers
+                renderContainers(containers);
+                
+                // Clear any existing refresh timer
+                if (refreshTimer) {
+                    clearTimeout(refreshTimer);
+                    refreshTimer = null;
                 }
-
-                noContainers.style.display = 'none';
-
-                containers.forEach(container => {
-    const card = document.createElement('div');
-    card.className = 'container-card';
-    card.innerHTML = `
-        <div class="container-header">
-            <span class="container-name">${container.name}</span>
-            <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
-        </div>
-        <div class="container-body">
-            <div class="container-image">Image: ${container.image}</div>
-            ${container.compose_file ? `<div class="container-compose">Compose File: ${container.compose_file}</div>` : ''}
-            <div class="container-stats" id="stats-${container.id}">
-                <div>CPU: <span id="cpu-${container.id}">--</span></div>
-                <div>Memory: <span id="mem-${container.id}">--</span></div>
-            </div>
-            <div class="actions">
-                <button class="btn btn-success" onclick="containerAction('${container.id}', 'start')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
-                <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
-                <button class="btn btn-warning" onclick="containerAction('${container.id}', 'restart')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
-                ${container.compose_file ? `<button class="btn btn-primary" onclick="editContainerCompose('${container.id}')">Edit</button>` : ''}
-                <button class="btn btn-error" onclick="deleteContainer('${container.id}')" ${container.status === 'running' ? 'disabled' : ''}>Delete</button>
-                <button class="btn btn-primary" onclick="showLogs('${container.id}')">Logs</button>
-                <button class="btn btn-primary" onclick="showInspect('${container.id}')">Inspect</button>
-            </div>
-        </div>
-    `;
-    list.appendChild(card);
-
-    if (container.status === 'running') {
-        fetchStats(container.id);
-    }
-});
+                
+                // Check if we need a refresh for stats, but only do silent refreshes
+                const needsRefresh = containers.some(c => 
+                    c.status === 'running' && (c.cpu_percent === 0 && c.memory_usage === 0)
+                );
+                
+                if (needsRefresh) {
+                    // Refresh again after 2 seconds, but silently (no loading indicator)
+                    refreshTimer = setTimeout(() => {
+                        refreshContainers();
+                    }, 2000);
+                }
             } catch (error) {
                 console.error('Failed to refresh containers:', error);
-                showMessage('error', 'Failed to refresh containers: ' + error.message);
+                showMessage('error', 'Failed to refresh containers');
                 document.getElementById('no-containers').style.display = 'block';
+            } finally {
+                refreshInProgress = false;
+                if (document.getElementById('loading-spinner')) {
+                    setLoading(false);
+                }
             }
         }
 
@@ -616,138 +798,79 @@
                     showMessage('error', result.message);
                 }
             } catch (error) {
-                showMessage('error', 'Failed to perform action: ' + error.message);
+                showMessage('error', 'Failed to perform action');
             }
         }
 
-        async function deleteContainer(containerId) {
-            if (!confirm('Are you sure you want to delete this container?')) return;
+        async function inspectContainer(id) {
             try {
-                const response = await fetch(`/api/container/${containerId}/delete`, { method: 'POST' });
+                const response = await fetch(`/api/container/${id}/inspect`);
                 const result = await response.json();
                 if (result.status === 'success') {
-                    showMessage('success', 'Container deleted successfully');
-                    refreshContainers();
+                    const inspectData = JSON.stringify(result.data, null, 2);
+                    alert(`Inspect Data:\n${inspectData}`);
                 } else {
                     showMessage('error', result.message);
                 }
             } catch (error) {
-                showMessage('error', 'Failed to delete container: ' + error.message);
+                showMessage('error', 'Failed to inspect container');
             }
         }
 
-        async function showLogs(containerId) {
+        async function viewContainerLogs(id) {
             try {
-                const response = await fetch(`/api/container/${containerId}/logs`);
+                const response = await fetch(`/api/container/${id}/logs`);
                 const result = await response.json();
                 if (result.status === 'success') {
-                    document.getElementById('logs-content').textContent = result.logs || 'No logs available';
-                    document.getElementById('logs-modal').style.display = 'block';
+                    alert(`Container Logs:\n${result.logs}`);
                 } else {
                     showMessage('error', result.message);
                 }
             } catch (error) {
-                showMessage('error', 'Failed to fetch logs: ' + error.message);
+                showMessage('error', 'Failed to get container logs');
             }
         }
 
-        function closeLogs() {
-            document.getElementById('logs-modal').style.display = 'none';
-            document.getElementById('logs-content').textContent = '';
-        }
-
-        async function showInspect(containerId) {
-            try {
-                const response = await fetch(`/api/container/${containerId}/inspect`);
-                const result = await response.json();
-                if (result.status === 'success') {
-                    const formatted = JSON.stringify(result.data, null, 2);
-                    document.getElementById('inspect-content').textContent = formatted;
-                    document.getElementById('inspect-modal').style.display = 'block';
-                } else {
-                    showMessage('error', result.message);
-                }
-            } catch (error) {
-                showMessage('error', 'Failed to inspect container: ' + error.message);
-            }
-        }
-
-        function closeInspect() {
-            document.getElementById('inspect-modal').style.display = 'none';
-            document.getElementById('inspect-content').textContent = '';
-        }
-
-        async function fetchStats(containerId) {
-            try {
-                const response = await fetch(`/api/container/${containerId}/stats`);
-                const result = await response.json();
-                if (result.status === 'success') {
-                    document.getElementById(`cpu-${containerId}`).textContent = result.cpu;
-                    document.getElementById(`mem-${containerId}`).textContent = result.memory;
-                }
-            } catch (error) {
-                console.error('Failed to fetch stats:', error);
-            }
-        }
         async function editContainerCompose(containerId) {
             try {
                 const response = await fetch(`/api/container/${containerId}/compose`);
                 const result = await response.json();
-                
                 if (result.status === 'success') {
-                    // Switch to compose tab
                     switchTab('compose');
-                    
-                    // Set the current file
                     currentComposeFile = result.file;
-                    console.log("Setting current file to:", currentComposeFile);
-                    
-                    // Load the content into the editor directly instead of calling loadCompose
                     document.getElementById('compose-editor').value = result.content;
-                    
-                    // Set the dropdown value after files are loaded
-                    setTimeout(() => {
-                        const select = document.getElementById('compose-files');
-                        select.value = currentComposeFile;
-                        console.log("Set dropdown value to:", currentComposeFile);
-                    }, 500); // Give time for loadComposeFiles to complete
-                    
-                    // Show a message
+                    document.getElementById('compose-files').value = currentComposeFile;
                     showMessage('success', `Editing compose file: ${currentComposeFile}`);
                 } else {
                     showMessage('error', result.message);
                 }
             } catch (error) {
-                showMessage('error', 'Failed to load compose file: ' + error.message);
+                showMessage('error', 'Failed to load compose file');
             }
         }
+
         async function loadCompose() {
             try {
-                const url = currentComposeFile ? 
-                    `/api/compose?file=${encodeURIComponent(currentComposeFile)}` : 
-                    '/api/compose';
-                    
+                const url = currentComposeFile ? `/api/compose?file=${encodeURIComponent(currentComposeFile)}` : '/api/compose';
                 const response = await fetch(url);
                 const result = await response.json();
                 if (result.content) {
                     document.getElementById('compose-editor').value = result.content;
                     currentComposeFile = result.file;
-                    // Update select to match current file
                     document.getElementById('compose-files').value = currentComposeFile;
                 } else {
-                    showMessage('error', `Failed to load compose file: ${result.message || 'Unknown error'}`);
+                    showMessage('error', result.message || 'Failed to load compose file');
                 }
             } catch (error) {
-                showMessage('error', 'Failed to load compose file: ' + error.message);
+                showMessage('error', 'Failed to load compose file');
             }
         }
 
         async function saveCompose() {
             if (!currentComposeFile) {
-                showMessage('error', 'Please select a compose file first');
+                showMessage('error', 'Please select a compose file');
                 return;
             }
-            
             try {
                 const content = document.getElementById('compose-editor').value;
                 const response = await fetch('/api/compose', {
@@ -762,21 +885,33 @@
                     showMessage('error', result.message);
                 }
             } catch (error) {
-                showMessage('error', 'Failed to save compose file: ' + error.message);
+                showMessage('error', 'Failed to save compose file');
             }
         }
 
         async function applyCompose() {
             if (!currentComposeFile) {
-                showMessage('error', 'Please select a compose file first');
+                showMessage('error', 'Please select a compose file');
                 return;
+            }
+            
+            // Check if there's an .env file to use
+            let envFile = null;
+            if (currentEnvFile) {
+                const useEnv = confirm("Would you like to use the current .env file?");
+                if (useEnv) {
+                    envFile = currentEnvFile;
+                }
             }
             
             try {
                 const response = await fetch('/api/compose/apply', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ file: currentComposeFile })
+                    body: JSON.stringify({ 
+                        file: currentComposeFile,
+                        env_file: envFile
+                    })
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
@@ -786,14 +921,35 @@
                     showMessage('error', result.message);
                 }
             } catch (error) {
-                showMessage('error', 'Failed to apply changes: ' + error.message);
+                console.error('Failed to apply changes:', error);
+                showMessage('error', 'Failed to apply changes');
             }
         }
 
-        // Initial load
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        const debouncedRefresh = debounce(refreshContainers, 300);
+
         document.addEventListener('DOMContentLoaded', function() {
             refreshContainers();
             loadComposeFiles();
+            loadSystemStats();
+            document.getElementById('search-input').addEventListener('input', debouncedRefresh);
+            document.getElementById('status-filter').addEventListener('change', refreshContainers);
+            document.getElementById('sort-filter').addEventListener('change', function() {
+                currentSort = this.value;
+                refreshContainers();
+            });
         });
     </script>
 </body>
