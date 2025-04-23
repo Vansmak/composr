@@ -95,7 +95,7 @@ The easiest way to use this application is to add it directly to your existing d
 If you manage containers with multiple docker-compose files in different directories:
 
 ```yaml
-docker-manager:
+composr:
   image: vansmak/composr:latest
   container_name: composr
   ports:
