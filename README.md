@@ -163,7 +163,7 @@ docker-manager/
 
 ## Configuration
 
-The application expects a specific path to your parent Directory before your docker-compose.yml files. Make sure to update the `COMPOSE_DIR` variable in app.py before running.
+The application expects a specific path to your parent Directory before your docker-compose.yml files. Make sure to update the `COMPOSE_DIR` variable before running.
 
 ## Security Notice
 
