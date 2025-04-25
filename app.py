@@ -72,7 +72,7 @@ def get_compose_files():
             for root, dirs, files in os.walk(search_dir, topdown=True):
                 dirs[:] = [d for d in dirs if not d.startswith('.')]
                 for file in files:
-                    if file in ['docker-compose.yml', 'compose.yml'] or file.startswith('docker-compose.'):
+                    if file in ['docker-compose.yml', 'compose.yml', 'compose.yaml'] or file.startswith('docker-compose.'):
                         file_path = os.path.join(root, file)
                         relative_path = os.path.relpath(file_path, COMPOSE_DIR)
                         compose_files.append(relative_path)
@@ -94,7 +94,7 @@ def scan_all_compose_files():
             for root, dirs, files in os.walk(search_dir, topdown=True):
                 dirs[:] = [d for d in dirs if not d.startswith('.')]
                 for file in files:
-                    if file in ['docker-compose.yml', 'compose.yml'] or file.startswith('docker-compose.'):
+                    if file in ['docker-compose.yml', 'compose.yml', 'compose.yaml'] or file.startswith('docker-compose.'):
                         file_path = os.path.join(root, file)
                         compose_files.append(file_path)
                         logger.debug(f"Found compose file during scan: {file_path}")
