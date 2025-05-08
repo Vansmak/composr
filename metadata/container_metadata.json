@@ -1,0 +1,70 @@
+{
+    "composr-dev": {
+      "tags": ["management"],
+      "custom_url": ""
+    },
+    "Fing": {
+      "tags": ["network"],
+      "custom_url": ""
+    },
+    "homarr": {
+      "tags": ["media"],
+      "custom_url": "https://homarr.lan"
+    },
+    "jellyseerr": {
+      "tags": ["media"],
+      "custom_url": "https://seer.lan"
+    },
+    "OCDarr": {
+      "tags": ["media"],
+      "custom_url": "http://192.168.254.205:5002"
+    },
+    "plex": {
+      "tags": ["media"],
+      "custom_url": "https://plex.lan"
+    },
+    "portainer-agent": {
+      "tags": ["management"],
+      "custom_url": "https://stack.lan"
+    },
+    "prowlarr": {
+      "tags": ["media"],
+      "custom_url": "https://prowlarr.lan"
+    },
+    "radarr": {
+      "tags": ["media"],
+      "custom_url": "https://radarr.lan"
+    },
+    "sabnzbd": {
+      "tags": ["media"],
+      "custom_url": "https://sabnzbd.lan"
+    },
+    "sonarr": {
+      "tags": ["media"],
+      "custom_url": "https://sonarr.lan"
+    },
+    "tautulli": {
+      "tags": ["media"],
+      "custom_url": "https://tautulli.lan"
+    },
+    "vaultwarden": {
+      "tags": ["services"],
+      "custom_url": "https://pw.lan"
+    },
+    "watchtower": {
+      "tags": ["management"],
+      "custom_url": ""
+    },
+    "wg-easy": {
+      "tags": ["network"],
+      "custom_url": ""
+    },
+    "calibre-web": {
+      "tags": ["media"],
+      "custom_url": "https://calibre.lan"
+    },
+    "caddy": {
+      "tags": ["network"],
+      "custom_url": ""
+    }
+  }

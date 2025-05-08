@@ -1,0 +1,19 @@
+
+version: '3'
+services:
+  composr:
+    build: .
+    container_name: composr-dev
+    ports:
+      - "5003:5003"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/app  # Mount code for development
+      - /home/joe:/home/joe  # Your home directory with all compose files
+      - ./metadata:/app/metadata  # Store metadata persistently
+    environment:
+      - COMPOSE_DIR=/home/joe/docker/home  # Look for compose files here
+      - EXTRA_COMPOSE_DIRS=/home/joe/docker/media-server:/home/joe/docker/services:/home/joe/docker/caddy:/home/joe/docker/ocdarr  # Extra directories to scan
+      - METADATA_DIR=/app/metadata  # Store settings here
+      - CADDY_CONFIG_DIR=/home/joe/config/caddy
+    restart: unless-stopped

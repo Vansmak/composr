@@ -1,0 +1,4 @@
+flask
+docker
+pytz
+PyYAML
