@@ -538,12 +538,13 @@ function showContainerPopup(id, name) {
                             <button class="btn btn-primary" onclick="viewContainerLogs('${id}')">Logs</button>
                             <button class="btn btn-primary" onclick="inspectContainer('${id}')">Inspect</button>
                             <button class="btn btn-primary" onclick="showContainerImage('${id}')">Image</button>
+                            <button class="btn btn-primary" onclick="execIntoContainer('${id}', '${name}')">Terminal</button>
                             <button class="btn btn-primary" onclick="repullContainer('${id}')">Repull</button>
                             <button class="btn btn-error" onclick="removeContainer('${id}', '${name}')">Remove</button>
                         </div>
                     `;
                     document.body.appendChild(popup);
-                    
+
                     const container = document.querySelector(`[data-id="${id}"]`);
                     if (container) {
                         document.getElementById(`popup-cpu-${id}`).textContent = container.dataset.cpu;
@@ -555,6 +556,105 @@ function showContainerPopup(id, name) {
             console.error('Error getting container settings:', error);
             showMessage('error', 'Failed to load container settings');
         });
+}
+function execIntoContainer(id, name) {
+    const modal = document.createElement('div');
+    modal.className = 'logs-modal terminal-modal';
+    modal.innerHTML = `
+        <div class="modal-header">
+            <h3>Terminal: ${name}</h3>
+            <span class="close-x" onclick="closeTerminal('${id}')">×</span>
+        </div>
+        <div class="terminal-container">
+            <div id="terminal-${id}" class="terminal-output"></div>
+            <div class="terminal-input-line">
+                <span class="terminal-prompt">root@${name}:~#</span>
+                <input type="text" id="terminal-input-${id}" class="terminal-input" 
+                       placeholder="Enter command (e.g., ls -la)" autofocus>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    // Focus the input
+    setTimeout(() => {
+        const input = document.getElementById(`terminal-input-${id}`);
+        if (input) input.focus();
+        
+        // Add event listener for command execution
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const command = input.value.trim();
+                if (!command) return;
+                
+                executeCommand(id, command);
+                input.value = '';
+            }
+        });
+    }, 100);
+}
+
+function executeCommand(id, command) {
+    const terminal = document.getElementById(`terminal-${id}`);
+    
+    // Show the command in the terminal
+    const cmdLine = document.createElement('div');
+    cmdLine.className = 'terminal-command';
+    cmdLine.textContent = `$ ${command}`;
+    terminal.appendChild(cmdLine);
+    
+    // Show "loading" indicator
+    const resultLine = document.createElement('div');
+    resultLine.className = 'terminal-result';
+    resultLine.textContent = 'Executing...';
+    terminal.appendChild(resultLine);
+    
+    // Scroll to bottom
+    terminal.scrollTop = terminal.scrollHeight;
+    
+    // Call API to execute command
+    fetch(`/api/container/${id}/exec`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: command })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.status === 'success') {
+            resultLine.innerHTML = result.output.replace(/\n/g, '<br>');
+        } else {
+            resultLine.innerHTML = `<span class="error">${result.message || 'Command failed'}</span>`;
+            
+            // Add helpful suggestions for common errors
+            if (result.output && result.output.includes('not found')) {
+                const suggestionDiv = document.createElement('div');
+                suggestionDiv.className = 'command-suggestion';
+                
+                // Check for Alpine Linux
+                if (command === 'ls' || command.startsWith('ls ')) {
+                    suggestionDiv.innerHTML = `
+                        This appears to be a minimal container (possibly Alpine Linux).
+                        <br>To install basic utilities, try:
+                        <br><code>apk update && apk add busybox-extras</code>
+                    `;
+                    terminal.appendChild(suggestionDiv);
+                }
+                // Other suggestion cases can be added here
+            }
+        }
+        
+        // Scroll to bottom again
+        terminal.scrollTop = terminal.scrollHeight;
+    })
+    .catch(error => {
+        resultLine.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+        terminal.scrollTop = terminal.scrollHeight;
+    });
+}
+
+function closeTerminal(id) {
+    const modal = document.querySelector(`.terminal-modal`);
+    if (modal) modal.remove();
 }
 
 function saveContainerSettings(id, name) {

@@ -169,7 +169,46 @@ def get_containers():
     except Exception as e:
         logger.error(f"Failed to list containers: {e}")
         return jsonify([])
-
+@app.route('/api/container/<id>/exec', methods=['POST'])
+def exec_in_container(id):
+    if client is None:
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+    try:
+        data = request.json
+        if not data or 'command' not in data:
+            return jsonify({'status': 'error', 'message': 'No command provided'})
+        
+        command = data['command']
+        container = client.containers.get(id)
+        
+        logger.info(f"Executing command in container {id}: {command}")
+        
+        # Execute the command
+        exec_result = container.exec_run(
+            cmd=["sh", "-c", command],
+            stdout=True,
+            stderr=True,
+            demux=False  # Combine stdout and stderr
+        )
+        
+        exit_code = exec_result.exit_code
+        output = exec_result.output.decode('utf-8', errors='replace')
+        
+        if exit_code != 0:
+            logger.warning(f"Command exited with code {exit_code}: {output}")
+            return jsonify({
+                'status': 'error',
+                'message': f'Command exited with code {exit_code}',
+                'output': output
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'output': output
+        })
+    except Exception as e:
+        logger.error(f"Failed to execute command in container {id}: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)})
 @app.route('/api/container/<id>/get_tags')
 def get_container_tags(id):
     """Get tags for a specific container"""
