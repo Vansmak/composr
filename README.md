@@ -31,6 +31,31 @@ A web-based interface for managing Docker containers and docker-compose configur
 - Batch operations for multiple containers
 - Desktop/mobile filter layout optimization
 
+## Terminal Feature
+
+Version 1.2.0 introduces a new container terminal feature, allowing you to execute commands directly within your containers from the web interface.
+
+### How to Use
+
+1. Click on a container card to open the container details popup
+2. Click the "Terminal" button in the actions section
+3. Enter commands in the terminal prompt that appears
+
+### Notes
+
+- The available commands depend on what's installed in the target container
+- Minimal containers (like Alpine-based images) may have limited command availability
+- Common commands that work in most containers:
+  - `echo $PATH` - Show the PATH environment variable
+  - `pwd` - Show current directory
+  - `cat /etc/os-release` - Show OS information (if available)
+  - `env` - List all environment variables
+
+**For your own Alpine-based containers**: If you want to enhance terminal capabilities in containers you maintain, you can add utilities to your Dockerfile:
+```dockerfile
+# Example addition to your own Alpine-based Dockerfile
+RUN apk update && apk add busybox-extras
+```
 ## Installation
 
 ### Using Docker Compose (Recommended)
