@@ -88,16 +88,7 @@ function switchTab(tabName) {
     if (tabName === 'containers') {
         refreshContainers();
     } else if (tabName === 'config') {
-        // Switch to compose subtab
         switchSubTab('compose');
-        
-        // Check if there's a pending file, but don't call scanComposeFiles automatically
-        // This prevents infinite loops
-        const pendingFile = localStorage.getItem('pendingComposeFile');
-        if (pendingFile) {
-            console.log('Found pending compose file when switching to config tab:', pendingFile);
-            // We'll let the compose tab handle loading this file on its own
-        }
     } else if (tabName === 'images') {
         loadImages();
     }
@@ -799,7 +790,6 @@ function batchAction(action) {
 }
 
 // Compose files functions
-// Update loadComposeFiles to check for a pending file
 function loadComposeFiles() {
     fetch('/api/compose/files')
         .then(response => response.json())
@@ -816,51 +806,6 @@ function loadComposeFiles() {
                 if (currentComposeFile) {
                     select.value = currentComposeFile;
                 }
-                
-                // Check if there's a pending file to load
-                const pendingFile = localStorage.getItem('pendingComposeFile');
-                if (pendingFile) {
-                    console.log('Found pending compose file to load:', pendingFile);
-                    
-                    // Clear the pending file first to prevent loops
-                    localStorage.removeItem('pendingComposeFile');
-                    
-                    // Use setTimeout to ensure the options are fully rendered
-                    setTimeout(() => {
-                        // Direct call to tryLoadCompose-like function
-                        const composeSelect = document.getElementById('compose-files');
-                        const availableOptions = Array.from(composeSelect.options)
-                            .map(opt => opt.value)
-                            .filter(val => val);
-                        
-                        let matchedOption = null;
-                        
-                        // Try exact match
-                        if (availableOptions.includes(pendingFile)) {
-                            matchedOption = pendingFile;
-                            console.log('Found exact match for pending file:', matchedOption);
-                        } else {
-                            // Try by parts
-                            const parts = pendingFile.split('/');
-                            const fileName = parts[parts.length - 1];
-                            
-                            for (const option of availableOptions) {
-                                if (option.endsWith(`/${fileName}`)) {
-                                    matchedOption = option;
-                                    console.log('Found match by filename for pending file:', matchedOption);
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        if (matchedOption) {
-                            composeSelect.value = matchedOption;
-                            currentComposeFile = matchedOption;
-                            loadCompose();
-                            console.log('Successfully loaded pending compose file');
-                        }
-                    }, 100);
-                }
             } else {
                 console.warn('No compose files found');
                 showMessage('warning', 'No compose files found. Try scanning or check the server configuration.');
@@ -872,7 +817,6 @@ function loadComposeFiles() {
         });
 }
 
-// Also update the scanComposeFiles function similarly
 function scanComposeFiles() {
     setLoading(true, 'Scanning for compose files...');
     fetch('/api/compose/scan')
@@ -888,51 +832,7 @@ function scanComposeFiles() {
                     option.textContent = file;
                     select.appendChild(option);
                 });
-                
-                // Check if there's a pending file to load
-                const pendingFile = localStorage.getItem('pendingComposeFile');
-                if (pendingFile) {
-                    console.log('Found pending compose file after scan:', pendingFile);
-                    
-                    // Clear the pending file to prevent loops
-                    localStorage.removeItem('pendingComposeFile');
-                    
-                    // Use setTimeout to ensure the options are fully rendered
-                    setTimeout(() => {
-                        // Try to find and load the pending file
-                        const availableOptions = Array.from(select.options)
-                            .map(opt => opt.value)
-                            .filter(val => val);
-                        
-                        let matchedOption = null;
-                        
-                        // Try exact match
-                        if (availableOptions.includes(pendingFile)) {
-                            matchedOption = pendingFile;
-                        } else {
-                            // Try by parts
-                            const parts = pendingFile.split('/');
-                            const fileName = parts[parts.length - 1];
-                            
-                            for (const option of availableOptions) {
-                                if (option.endsWith(`/${fileName}`)) {
-                                    matchedOption = option;
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        if (matchedOption) {
-                            select.value = matchedOption;
-                            currentComposeFile = matchedOption;
-                            loadCompose();
-                        } else {
-                            showMessage('warning', `Could not find ${pendingFile} in available compose files`);
-                        }
-                    }, 100);
-                } else {
-                    showMessage('success', `Found ${data.files.length} compose files`);
-                }
+                showMessage('success', `Found ${data.files.length} compose files`);
             } else {
                 console.warn('No compose files found during scan');
                 showMessage('warning', 'No compose files found during scan. Ensure files exist in configured directories.');
@@ -975,15 +875,6 @@ async function loadCompose() {
         } else {
             console.error('Failed to load compose file:', result.message);
             showMessage('error', result.message || 'Failed to load compose file');
-            
-            // If the error mentions "not found", try a fallback to docker-compose.yml (with yml extension)
-            if (result.message && result.message.includes('not found') && currentComposeFile.endsWith('.yaml')) {
-                const alternateFile = currentComposeFile.replace('.yaml', '.yml');
-                console.log(`Trying alternate extension: ${alternateFile}`);
-                currentComposeFile = alternateFile;
-                loadCompose(); // Recursively try with the new extension
-                return;
-            }
         }
     } catch (error) {
         console.error('Failed to load compose file:', error);
@@ -1411,25 +1302,14 @@ function extractStackName(container) {
             return container.compose_project;
         }
 
-        // Use compose_file directory as the stack name
+        // Use compose_file directory or filename as the stack name
         if (container.compose_file) {
-            // Extract the first meaningful directory from the path
-            const pathParts = container.compose_file.split('/').filter(p => p.length > 0);
-            
-            // Skip common system directories that aren't likely to be stack names
-            const systemDirs = ['home', 'var', 'opt', 'usr', 'etc', 'mnt', 'srv', 'data', 'app', 'docker'];
-            
-            for (const part of pathParts) {
-                // Skip system directories
-                if (!systemDirs.includes(part.toLowerCase())) {
-                    return part;
-                }
+            const cleanPath = container.compose_file.replace(/^\/+|\/+$/g, '');
+            const parts = cleanPath.split(/[\/\\]/);
+            if (parts.length > 1) {
+                return parts[0]; // Use the directory name
             }
-            
-            // If all parts were system dirs, use the last directory
-            if (pathParts.length > 0) {
-                return pathParts[pathParts.length - 2] || pathParts[0];
-            }
+            return parts[0].replace(/\.(ya?ml|compose)$/, ''); // Use the filename without extension
         }
 
         // Fallback: Check for a standard Docker Compose project label
@@ -1560,179 +1440,48 @@ function renderContainersByStack(containers) {
     }
 }
 function findComposeFileForStack(containers) {
-    if (!containers || containers.length === 0) return null;
-    
-    const stackName = extractStackName(containers[0]);
-    console.log('Finding compose file for stack:', stackName);
-    
-    // Try to extract compose file directly from container
     for (const container of containers) {
-        if (container.compose_file) {
-            console.log('Container has compose_file property:', container.compose_file);
-            
-            // If the compose_file doesn't include the stack name, add it
-            if (!container.compose_file.includes('/') && stackName) {
-                const fullPath = `${stackName}/${container.compose_file}`;
-                console.log('Converting to full path:', fullPath);
-                return fullPath;
-            }
-            
-            return container.compose_file;
-        }
+        if (container.compose_file) return container.compose_file;
     }
-    
-    // No compose file found, construct a default path
-    if (stackName) {
-        const defaultPath = `${stackName}/docker-compose.yaml`;
-        console.log('Using default path:', defaultPath);
-        return defaultPath;
-    }
-    
     return null;
 }
 
-function openComposeInEditor(composeFile) {
+openComposeInEditor(composeFile) {
     console.log('Opening compose file:', composeFile);
-    
-    if (!composeFile) {
-        showMessage('error', 'No compose file specified');
-        return;
-    }
-    
-    // Clear any previous pending file immediately
-    localStorage.removeItem('pendingComposeFile');
-    
-    // Switch to config tab
     switchTab('config');
     
-    // Function to check if compose files are loaded and load the requested file
-    function tryLoadCompose() {
+    // Refresh the compose files list first
+    scanComposeFiles();
+    
+    setTimeout(() => {
         const composeSelect = document.getElementById('compose-files');
-        if (!composeSelect) {
-            console.error('Compose files select not found');
-            return false;
-        }
-        
-        const availableOptions = Array.from(composeSelect.options)
-            .map(opt => opt.value)
-            .filter(val => val);
-        
-        console.log('Available options:', availableOptions);
-        
-        // If no options are available yet, we'll trigger a load
-        if (availableOptions.length === 0) {
-            console.log('No options available yet, triggering file load');
-            // Store the file we're trying to load
-            localStorage.setItem('pendingComposeFile', composeFile);
-            loadComposeFiles();
-            return false;
-        }
-        
-        // Try to find a matching option
-        let matchedOption = null;
-        
-        // 1. Try exact match
-        if (availableOptions.includes(composeFile)) {
-            matchedOption = composeFile;
-            console.log('Found exact match:', matchedOption);
-        }
-        // 2. Try to match by parts
-        else {
-            const parts = composeFile.split('/');
-            const fileName = parts[parts.length - 1];
-            const dirName = parts.length > 1 ? parts[parts.length - 2] : '';
+        if (composeSelect) {
+            // Extract just the filename from the path if it's a full path
+            const fileName = composeFile.split('/').pop();
+            console.log('Looking for file name:', fileName);
             
-            // Try matching by directory and filename
-            if (dirName) {
-                for (const option of availableOptions) {
-                    if (option.includes(`${dirName}/`) && option.endsWith(`/${fileName}`)) {
-                        matchedOption = option;
-                        console.log('Found by directory and filename match:', matchedOption);
-                        break;
-                    }
+            let found = false;
+            for (let i = 0; i < composeSelect.options.length; i++) {
+                const optionValue = composeSelect.options[i].value;
+                // Check if the option ends with the file name
+                if (optionValue.endsWith('/' + fileName) || optionValue === fileName) {
+                    composeSelect.value = optionValue;
+                    currentComposeFile = optionValue;
+                    found = true;
+                    break;
                 }
             }
             
-            // If still not found, try just by filename
-            if (!matchedOption) {
-                for (const option of availableOptions) {
-                    if (option.endsWith(`/${fileName}`)) {
-                        matchedOption = option;
-                        console.log('Found by filename match:', matchedOption);
-                        break;
-                    }
-                }
-            }
-        }
-        
-        if (matchedOption) {
-            console.log('Using matched option:', matchedOption);
-            composeSelect.value = matchedOption;
-            currentComposeFile = matchedOption;
-            loadCompose();
-            return true;
-        }
-        
-        return false;
-    }
-    
-    // Try to load immediately
-    if (!tryLoadCompose()) {
-        // If not successful, scan for files and try again
-        console.log('First attempt failed, scanning for compose files...');
-        
-        // Show a loading message
-        showMessage('info', 'Searching for compose files...');
-        
-        // Store the file we're trying to load
-        localStorage.setItem('pendingComposeFile', composeFile);
-        
-        // Scan for compose files
-        scanComposeFiles();
-    }
-}
-// New function to directly load a compose file without relying on the dropdown
-function directLoadCompose(projectName, filename) {
-    const composePath = projectName ? `${projectName}/${filename}` : filename;
-    console.log(`Attempting direct load of ${composePath}`);
-    
-    fetch(`/api/compose?file=${encodeURIComponent(composePath)}`)
-        .then(response => response.json())
-        .then(result => {
-            if (result.status === 'success') {
-                document.getElementById('compose-editor').value = result.content;
-                currentComposeFile = result.file;
-                // Update dropdown if possible
-                const composeSelect = document.getElementById('compose-files');
-                if (composeSelect) {
-                    const options = Array.from(composeSelect.options).map(opt => opt.value);
-                    if (options.includes(result.file)) {
-                        composeSelect.value = result.file;
-                    } else {
-                        // Add option if not present
-                        const newOption = document.createElement('option');
-                        newOption.value = result.file;
-                        newOption.textContent = result.file;
-                        composeSelect.appendChild(newOption);
-                        composeSelect.value = result.file;
-                    }
-                }
-                showMessage('success', `Loaded compose file: ${result.file}`);
+            if (found) {
+                loadCompose();
+                showMessage('success', 'Compose file loaded');
             } else {
-                console.error('Failed direct load:', result.message);
-                showMessage('error', `Failed to load compose file: ${result.message}`);
-                
-                // Fall back to one last try - attempt to trigger a compose file scan
-                scanComposeFiles();
-                setTimeout(() => {
-                    showMessage('info', 'Scanned for compose files. Please try again.');
-                }, 1000);
+                showMessage('error', 'Could not find matching compose file: ' + fileName);
             }
-        })
-        .catch(error => {
-            console.error('Direct load failed:', error);
-            showMessage('error', `Failed to load compose file: ${error.message}`);
-        });
+        } else {
+            console.error('Compose files select not found');
+        }
+    }, 500); // Wait for scan to complete
 }
 
 // Initialize with a more robust approach

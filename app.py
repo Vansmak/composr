@@ -469,61 +469,84 @@ def get_container_compose(id):
         return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
     try:
         container = client.containers.get(id)
+        
+        # Extract project name and service name from labels
         labels = container.labels
-        config_files = labels.get('com.docker.compose.project.config_files', None)
-        if not config_files:
-            logger.error(f"No compose file associated with container {id}")
-            return jsonify({'status': 'error', 'message': 'No compose file associated with this container'})
-        file_path = config_files.split(',')[0]
-        logger.debug(f"Original compose file path: {file_path}")
-        search_dirs = [COMPOSE_DIR] + [d for d in EXTRA_COMPOSE_DIRS if d]
-        container_file_path = None
-        for search_dir in search_dirs:
-            file_name = os.path.basename(file_path)
-            candidate_path = os.path.normpath(os.path.join(search_dir, file_name))
-            logger.debug(f"Trying root candidate path: {candidate_path}")
-            if os.path.exists(candidate_path):
-                container_file_path = candidate_path
-                break
-            try:
-                relative_path = os.path.relpath(file_path, os.path.dirname(os.path.dirname(search_dir)))
-                candidate_path = os.path.normpath(os.path.join(search_dir, relative_path))
-                logger.debug(f"Trying direct candidate path: {candidate_path}")
-                if os.path.exists(candidate_path):
-                    container_file_path = candidate_path
-                    break
-            except ValueError:
-                pass
-            for possible_base in ['/home', '/mnt', '/opt', '/var', '/data', '/']:
-                if file_path.startswith(possible_base):
-                    relative_path = file_path[len(possible_base):].lstrip('/')
-                    candidate_path = os.path.normpath(os.path.join(search_dir, relative_path))
-                    logger.debug(f"Trying mapped candidate path: {candidate_path}")
-                    if os.path.exists(candidate_path):
-                        container_file_path = candidate_path
-                        break
-            if container_file_path:
-                break
-        if not container_file_path:
-            logger.error(f"Compose file not found for container {id}: {file_path}")
-            return jsonify({
-                'status': 'error',
-                'message': f'Compose file {file_path} not found. Mount its directory to {COMPOSE_DIR} or add it to EXTRA_COMPOSE_DIRS in your docker-compose.yml.'
-            })
-        logger.debug(f"Found container file path: {container_file_path}")
-        with open(container_file_path, 'r') as f:
-            content = f.read()
-        relative_path = os.path.relpath(container_file_path, COMPOSE_DIR)
-        logger.debug(f"Returning relative path: {relative_path}")
+        project = labels.get('com.docker.compose.project', '')
+        service = labels.get('com.docker.compose.service', '')
+        
+        logger.debug(f"Looking for compose file for project: {project}, service: {service}")
+        
+        # Check if project exists as a directory in COMPOSE_DIR
+        project_dir = os.path.join(COMPOSE_DIR, project)
+        
+        # List of common compose filenames
+        compose_filenames = ['docker-compose.yaml', 'docker-compose.yml', 'compose.yaml', 'compose.yml']
+        
+        # Try to find compose file in project directory
+        if os.path.isdir(project_dir):
+            logger.debug(f"Found project directory: {project_dir}")
+            
+            for filename in compose_filenames:
+                file_path = os.path.join(project_dir, filename)
+                if os.path.exists(file_path):
+                    logger.debug(f"Found compose file: {file_path}")
+                    
+                    with open(file_path, 'r') as f:
+                        content = f.read()
+                    
+                    relative_path = os.path.join(project, filename)
+                    return jsonify({
+                        'status': 'success',
+                        'content': content,
+                        'file': relative_path
+                    })
+        
+        # If that doesn't work, try all directories
+        for dir_name in os.listdir(COMPOSE_DIR):
+            dir_path = os.path.join(COMPOSE_DIR, dir_name)
+            if not os.path.isdir(dir_path):
+                continue
+                
+            for filename in compose_filenames:
+                file_path = os.path.join(dir_path, filename)
+                if os.path.exists(file_path):
+                    logger.debug(f"Checking compose file: {file_path}")
+                    
+                    # Check if this compose file contains the service
+                    try:
+                        with open(file_path, 'r') as f:
+                            import yaml
+                            try:
+                                compose_data = yaml.safe_load(f)
+                                if (compose_data and 'services' in compose_data and
+                                    service in compose_data['services']):
+                                    logger.debug(f"Found matching service in: {file_path}")
+                                    
+                                    with open(file_path, 'r') as f2:
+                                        content = f2.read()
+                                    
+                                    relative_path = os.path.join(dir_name, filename)
+                                    return jsonify({
+                                        'status': 'success',
+                                        'content': content,
+                                        'file': relative_path
+                                    })
+                            except yaml.YAMLError:
+                                pass
+                    except Exception as e:
+                        logger.debug(f"Error checking compose file: {e}")
+        
+        # If still not found, return error
+        logger.error(f"No matching compose file found for container {id}, project {project}, service {service}")
         return jsonify({
-            'status': 'success',
-            'content': content,
-            'file': relative_path
+            'status': 'error',
+            'message': f'Compose file for {project}/{service} not found.'
         })
     except Exception as e:
         logger.error(f"Failed to get compose file for container {id}: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': f'Failed to load compose file: {str(e)}'})
-
+    
 # System info route
 @app.route('/api/system')
 def get_system_stats():
