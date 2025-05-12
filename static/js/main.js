@@ -133,20 +133,33 @@ function loadSystemStats() {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                // Populate .stats-grid IDs with fallback checks
-                const totalContainers = document.getElementById('total-containers-grid');
+                // Desktop stats (grid)
+                const totalContainersGrid = document.getElementById('total-containers-grid');
                 const runningContainers = document.getElementById('running-containers');
-                const cpuCount = document.getElementById('cpu-count-grid');
-                const memoryUsage = document.getElementById('memory-usage-grid');
-                const memoryTotal = document.getElementById('memory-total-grid');
+                const cpuCountGrid = document.getElementById('cpu-count-grid');
+                const memoryUsageGrid = document.getElementById('memory-usage-grid');
+                const memoryTotalGrid = document.getElementById('memory-total-grid');
                 const memoryProgress = document.getElementById('memory-progress');
-
-                if (totalContainers) totalContainers.textContent = data.total_containers || '--';
+                
+                // Mobile stats (compact)
+                const totalContainers = document.getElementById('total-containers');
+                const cpuCount = document.getElementById('cpu-count');
+                const memoryUsage = document.getElementById('memory-usage');
+                const memoryTotal = document.getElementById('memory-total');
+                
+                // Populate desktop stats
+                if (totalContainersGrid) totalContainersGrid.textContent = data.total_containers || '--';
                 if (runningContainers) runningContainers.textContent = data.running_containers || '--';
+                if (cpuCountGrid) cpuCountGrid.textContent = data.cpu_count || '--';
+                if (memoryUsageGrid) memoryUsageGrid.textContent = data.memory_used || '--';
+                if (memoryTotalGrid) memoryTotalGrid.textContent = data.memory_total || '--';
+                if (memoryProgress) memoryProgress.style.width = `${data.memory_percent || 0}%`;
+                
+                // Populate mobile stats
+                if (totalContainers) totalContainers.textContent = data.total_containers || '--';
                 if (cpuCount) cpuCount.textContent = data.cpu_count || '--';
                 if (memoryUsage) memoryUsage.textContent = data.memory_used || '--';
                 if (memoryTotal) memoryTotal.textContent = data.memory_total || '--';
-                if (memoryProgress) memoryProgress.style.width = `${data.memory_percent || 0}%`;
             } else {
                 console.error('System stats error:', data.message);
                 showMessage('error', data.message || 'Failed to load system stats');
@@ -387,11 +400,7 @@ function renderSingleContainer(container, parentElement) {
             <div class="container-stats">
                 CPU: ${container.cpu_percent}% | Memory: ${container.memory_usage} MB
             </div>
-            <div class="actions">
-                <button class="btn btn-success" onclick="containerAction('${container.id}', 'start')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
-                <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
-                <button class="btn btn-primary" onclick="containerAction('${container.id}', 'restart')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
-            </div>
+            
         </div>
     `;
 
@@ -874,8 +883,15 @@ async function repullContainer(id) {
     }
 }
 
-// Updated toggleBatchMode function
 function toggleBatchMode() {
+    // Show warning when enabling batch mode
+    if (!document.getElementById('containers-list').classList.contains('batch-mode')) {
+        const warningMessage = "Batch actions use Docker commands, not Compose, and may disrupt Compose setups (e.g., networks, dependencies). Continue?";
+        if (!confirm(warningMessage)) {
+            return; // Exit if user cancels
+        }
+    }
+
     const containersList = document.getElementById('containers-list');
     const tableView = document.getElementById('table-view');
     const batchActions = document.getElementById('batch-actions');
@@ -1383,6 +1399,7 @@ async function saveCompose() {
     }
 }
 
+
 function extractEnvVarsToClipboard() {
     if (!currentComposeFile) {
         showMessage('error', 'Please select a compose file');
@@ -1420,38 +1437,43 @@ function extractEnvVarsToClipboard() {
         });
 }
 
-// Replace the existing composeAction function with this one
-function composeAction(action) {
-    if (!currentComposeFile) {
+function composeAction(action, file = null) {
+    // Use provided file or fall back to currentComposeFile
+    const composeFile = file || currentComposeFile;
+    
+    if (!composeFile) {
         showMessage('error', 'Please select a compose file');
         return;
     }
-    
+   
     if (action !== 'restart') {
         showMessage('error', 'Only restart action is supported');
         return;
     }
-    
-    // Create a modal for the pull option instead of using confirm
+   
+    // Create a modal for the pull option
     const modal = document.createElement('div');
     modal.className = 'logs-modal';
     modal.innerHTML = `
         <div class="modal-header">
-            <h3>Restart ${currentComposeFile}</h3>
+            <h3>Restart ${composeFile}</h3>
             <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
         </div>
         <div class="modal-content" style="padding: 1rem;">
             <p>Do you want to pull the latest images before restarting?</p>
             <div class="actions" style="display: flex; gap: 1rem; justify-content: center; margin-top: 1rem;">
-                <button class="btn btn-success" onclick="executeComposeRestart(true)">Yes, pull latest images</button>
-                <button class="btn btn-primary" onclick="executeComposeRestart(false)">No, use existing images</button>
+                <button class="btn btn-success" onclick="executeComposeRestart(true, '${composeFile}')">Yes, pull latest images</button>
+                <button class="btn btn-primary" onclick="executeComposeRestart(false, '${composeFile}')">No, use existing images</button>
             </div>
         </div>
     `;
     document.body.appendChild(modal);
 }
 
-function executeComposeRestart(pullImages) {
+function executeComposeRestart(pullImages, file = null) {
+    // Use provided file or fall back to currentComposeFile
+    const composeFile = file || currentComposeFile;
+    
     // Close any open modals
     document.querySelectorAll('.logs-modal').forEach(modal => modal.remove());
     
@@ -1460,7 +1482,7 @@ function executeComposeRestart(pullImages) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-            file: currentComposeFile,
+            file: composeFile,
             action: 'restart',
             pull: pullImages
         })
@@ -1906,22 +1928,17 @@ function renderContainersByStack(containers) {
             }
         });
 
-        // Calculate stats for each stack
-        const stackStats = {};
-        Object.keys(stackContainers).forEach(stackName => {
+        // Render each stack with its containers
+        Object.keys(stackContainers).sort().forEach(async stackName => {
             const stackGroup = stackContainers[stackName];
-            stackStats[stackName] = {
+            const stats = {
                 total: stackGroup.length,
                 running: stackGroup.filter(c => c.status === 'running').length,
                 cpu: stackGroup.reduce((sum, c) => sum + (parseFloat(c.cpu_percent) || 0), 0).toFixed(1),
                 memory: Math.round(stackGroup.reduce((sum, c) => sum + (parseFloat(c.memory_usage) || 0), 0))
             };
-        });
-
-        // Render each stack with its containers
-        Object.keys(stackContainers).sort().forEach(stackName => {
-            const stats = stackStats[stackName];
-            const composeFile = findComposeFileForStack(stackContainers[stackName]);
+            
+            const composeFile = findComposeFileForStack(stackGroup);
 
             // Create stack header
             const stackHeader = document.createElement('div');
@@ -1932,19 +1949,31 @@ function renderContainersByStack(containers) {
                     <span title="Container count">${stats.running}/${stats.total} running</span>
                     <span title="Total CPU usage">CPU: ${stats.cpu}%</span>
                     <span title="Total memory usage">Mem: ${stats.memory} MB</span>
+                    <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); showStackDetailsModal('${stackName}', '${composeFile || ''}')">
+                        🐳
+                    </button>
                 </div>
             `;
 
+            // Remove the old click handler that wasn't working
+            // Add a proper event listener if compose file exists
             if (composeFile) {
+                stackHeader.style.cursor = 'pointer';
                 stackHeader.title = "Click to open compose file";
-                stackHeader.addEventListener('click', () => openComposeInEditor(composeFile));
+                // Add click event to the header, but not the button
+                stackHeader.addEventListener('click', (e) => {
+                    // Don't trigger if clicking the details button
+                    if (!e.target.closest('button')) {
+                        openComposeInEditor(composeFile);
+                    }
+                });
             }
 
             list.appendChild(stackHeader);
 
             // Render the containers for this stack
-            stackContainers[stackName].sort((a, b) => a.name.localeCompare(b.name));
-            stackContainers[stackName].forEach(container => {
+            stackGroup.sort((a, b) => a.name.localeCompare(b.name));
+            stackGroup.forEach(container => {
                 renderSingleContainer(container, list, isBatchMode);
             });
         });
@@ -1957,12 +1986,260 @@ function renderContainersByStack(containers) {
         showMessage('error', 'Failed to render containers by stack');
     }
 }
+function showStackDetailsModal(stackName, composeFile) {
+    const modal = document.createElement('div');
+    modal.className = 'logs-modal';
+    modal.innerHTML = `
+        <div class="modal-header">
+            <h3>${stackName} Compose Details</h3>
+            <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
+        </div>
+        <div class="modal-content" style="padding: 1rem;">
+            <div class="stack-details-content">
+                <p>Loading compose resources...</p>
+            </div>
+            <div class="stack-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                ${composeFile ? `
+                    <button class="btn btn-primary" onclick="document.querySelectorAll('.logs-modal').forEach(m => m.remove()); openComposeInEditor('${composeFile}')">
+                        Edit Compose File
+                    </button>
+                    <button class="btn btn-success" onclick="composeAction('restart', '${composeFile}')">
+                        Restart
+                    </button>
+                ` : ''}
+                <button class="btn btn-error" onclick="this.closest('.logs-modal').remove()">Close</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    // Load stack resources
+    getStackResources(stackName).then(resources => {
+        const detailsContent = modal.querySelector('.stack-details-content');
+        detailsContent.innerHTML = `
+            <div class="stack-resources" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                <div class="resource-section">
+                    <h4>Volumes (${resources.volumes.length})</h4>
+                    <ul style="list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto;">
+                        ${resources.volumes.length > 0 
+                            ? resources.volumes.map(v => `
+                                <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
+                                    ${v.name}
+                                    ${v.in_use ? `<span style="color: var(--accent-success)"> • in use</span>` : ''}
+                                </li>
+                            `).join('')
+                            : '<li style="font-style: italic; color: var(--text-secondary);">No volumes</li>'
+                        }
+                    </ul>
+                </div>
+                <div class="resource-section">
+                    <h4>Networks (${resources.networks.length})</h4>
+                    <ul style="list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto;">
+                        ${resources.networks.length > 0
+                            ? resources.networks.map(n => `
+                                <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
+                                    ${n.name}
+                                    ${n.external ? `<span style="color: var(--accent-warning)"> • external</span>` : ''}
+                                </li>
+                            `).join('')
+                            : '<li style="font-style: italic; color: var(--text-secondary);">No custom networks</li>'
+                        }
+                    </ul>
+                </div>
+            </div>
+            
+            ${resources.envFile || resources.images.length > 0 ? `
+                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                    ${resources.envFile ? `
+                        <div style="margin-bottom: 1rem;">
+                            <h4>Environment Configuration</h4>
+                            <p style="color: var(--text-secondary); font-size: 0.85rem;">
+                                .env file: ${resources.envFile}
+                                <button class="btn btn-primary btn-sm" style="margin-left: 1rem;" onclick="document.querySelectorAll('.logs-modal').forEach(m => m.remove()); openEnvInEditor('${resources.envFile}')">
+                                    Edit .env
+                                </button>
+                            </p>
+                        </div>
+                    ` : ''}
+                    
+                    ${resources.images.length > 0 ? `
+                        <div>
+                            <h4>Images (${resources.images.length})</h4>
+                            <ul style="list-style: none; padding: 0; margin: 0; max-height: 150px; overflow-y: auto;">
+                                ${resources.images.map(img => `
+                                    <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
+                                        ${img.name} 
+                                        <span style="color: var(--text-secondary);">• ${img.size} MB</span>
+                                        <span style="color: var(--text-secondary);">• ${img.created}</span>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            ` : ''}
+        `;
+    }).catch(error => {
+        const detailsContent = modal.querySelector('.stack-details-content');
+        detailsContent.innerHTML = `<p style="color: var(--accent-error);">Failed to load stack resources</p>`;
+    });
+}
+// Add this helper function to open env file in editor
+function openEnvInEditor(envFile) {
+    // Switch to config tab and env subtab
+    switchTab('config');
+    setTimeout(() => {
+        switchSubTab('env');
+        // Set the env file in the dropdown and load it
+        const envSelect = document.getElementById('env-files');
+        if (envSelect) {
+            // Add the option if it doesn't exist
+            let optionExists = false;
+            for (let i = 0; i < envSelect.options.length; i++) {
+                if (envSelect.options[i].value === envFile) {
+                    optionExists = true;
+                    break;
+                }
+            }
+            
+            if (!optionExists) {
+                const option = document.createElement('option');
+                option.value = envFile;
+                option.textContent = envFile;
+                envSelect.appendChild(option);
+            }
+            
+            envSelect.value = envFile;
+            loadEnvFile();
+        }
+    }, 100);
+}
+// New helper functions
+async function getStackResources(stackName) {
+    try {
+        const [volumesResponse, networksResponse] = await Promise.all([
+            fetch('/api/volumes'),
+            fetch('/api/networks')
+        ]);
+
+        const volumes = await volumesResponse.json();
+        const networks = await networksResponse.json();
+
+        // Filter resources that belong to this stack
+        const stackVolumes = volumes.filter(v => {
+            return v.name.startsWith(stackName + '_') || 
+                   (v.labels && v.labels['com.docker.compose.project'] === stackName);
+        });
+
+        const stackNetworks = networks.filter(n => {
+            if (['bridge', 'host', 'none'].includes(n.name)) return false;
+            return n.name.startsWith(stackName + '_') || 
+                   n.name === stackName + '_default' ||
+                   (n.labels && n.labels['com.docker.compose.project'] === stackName);
+        });
+
+        // Try to find .env file for this stack
+        let envFile = null;
+        try {
+            const envFilesResponse = await fetch('/api/env/files');
+            const envFilesData = await envFilesResponse.json();
+            const envFiles = envFilesData.files || [];
+            
+            // Look for .env file in stack directory
+            envFile = envFiles.find(f => {
+                // Check if the env file path contains the stack name
+                return f.includes(`/${stackName}/.env`) || 
+                       f.includes(`${stackName}/.env`) ||
+                       f.endsWith(`/${stackName}/.env`);
+            });
+        } catch (e) {
+            console.error('Failed to check for .env file:', e);
+        }
+
+        // Get stack images
+        let stackImages = new Set();
+        try {
+            const imagesResponse = await fetch('/api/images');
+            const allImages = await imagesResponse.json();
+            
+            // Get containers for this stack
+            const containersResponse = await fetch('/api/containers');
+            const containers = await containersResponse.json();
+            const stackContainers = containers.filter(c => extractStackName(c) === stackName);
+            
+            // Find images used by this stack
+            stackContainers.forEach(container => {
+                if (container.image) {
+                    const matchingImage = allImages.find(img => 
+                        img.tags.includes(container.image) || 
+                        container.image.includes(img.name.split(':')[0])
+                    );
+                    if (matchingImage) {
+                        stackImages.add({
+                            name: matchingImage.name,
+                            size: matchingImage.size,
+                            created: matchingImage.created
+                        });
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Failed to get stack images:', e);
+        }
+
+        return {
+            volumes: stackVolumes.map(v => ({
+                name: v.name.replace(stackName + '_', ''),
+                driver: v.driver,
+                mountpoint: v.mountpoint,
+                in_use: v.in_use
+            })),
+            networks: stackNetworks.map(n => ({
+                name: n.name.replace(stackName + '_', ''),
+                driver: n.driver,
+                external: n.external || false
+            })),
+            envFile: envFile,
+            images: Array.from(stackImages)
+        };
+    } catch (error) {
+        console.error('Error getting stack resources:', error);
+        return { volumes: [], networks: [], envFile: null, images: [] };
+    }
+}
+
+function toggleStackDetails(stackName) {
+    const details = document.getElementById(`stack-details-${stackName}`);
+    const toggle = document.getElementById(`stack-toggle-${stackName}`);
+    
+    if (details.style.display === 'none') {
+        details.style.display = 'block';
+        toggle.textContent = 'Details ▲';
+    } else {
+        details.style.display = 'none';
+        toggle.textContent = 'Details ▼';
+    }
+}
+
+
+function cleanupStackResources(stackName) {
+    if (!confirm(`This will remove unused volumes and networks from compose file "${stackName}". Continue?`)) {
+        return;
+    }
+    
+    setLoading(true, 'Cleaning up compose resources...');
+    
+    // This would call a new endpoint to cleanup stack-specific resources
+    // For now, we'll just show a message
+    showMessage('info', 'Compose cleanup not implemented yet');
+    setLoading(false);
+}
 
 function findComposeFileForStack(containers) {
     if (!containers || containers.length === 0) return null;
     
     const stackName = extractStackName(containers[0]);
-    console.log('Finding compose file for stack:', stackName);
+    console.log('Finding compose file:', stackName);
     
     // Try to extract compose file directly from container
     for (const container of containers) {
@@ -2139,7 +2416,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize theme
     loadTheme();
-    
+    // Set stack as default grouping
+    const groupFilter = document.getElementById('group-filter');
+    const groupFilterMobile = document.getElementById('group-filter-mobile');
+    if (groupFilter) groupFilter.value = 'stack';
+    if (groupFilterMobile) groupFilterMobile.value = 'stack';
     // Make sure tabs are properly set
     document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));

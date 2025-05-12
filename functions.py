@@ -73,6 +73,10 @@ def get_compose_files(compose_dir, extra_dirs, logger):
     try:
         compose_files = []
         search_dirs = [compose_dir] + [d for d in extra_dirs if d]
+        
+        # Only allow these specific filenames
+        valid_filenames = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']
+        
         for search_dir in search_dirs:
             if logger:
                 logger.debug(f"Searching directory: {search_dir}")
@@ -80,10 +84,12 @@ def get_compose_files(compose_dir, extra_dirs, logger):
                 if logger:
                     logger.warning(f"Search directory doesn't exist: {search_dir}")
                 continue
+                
             for root, dirs, files in os.walk(search_dir, topdown=True):
                 dirs[:] = [d for d in dirs if not d.startswith('.')]
                 for file in files:
-                    if file in ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml'] or file.startswith('docker-compose.'):
+                    # Only include files that match exactly our valid filenames
+                    if file in valid_filenames:
                         file_path = os.path.join(root, file)
                         try:
                             relative_path = os.path.relpath(file_path, compose_dir)
@@ -95,27 +101,35 @@ def get_compose_files(compose_dir, extra_dirs, logger):
                             if logger:
                                 logger.warning(f"Failed to compute relative path for {file_path}: {e}")
                             continue
+                            
         if logger:
             logger.info(f"Total compose files found: {len(compose_files)}")
         return sorted(compose_files)
     except Exception as e:
         if logger:
             logger.error(f"Failed to find compose files: {e}", exc_info=True)
-        raise  # Re-raise to ensure endpoint handles the error
+        raise
 
+# Apply same fix to scan_all_compose_files function
 def scan_all_compose_files(compose_dir, extra_dirs, logger):
     """Scan for all compose files, returning relative paths"""
     try:
         compose_files = []
         search_dirs = [compose_dir] + [d for d in extra_dirs if d]
+        
+        # Only allow these specific filenames
+        valid_filenames = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']
+        
         for search_dir in search_dirs:
             if not os.path.exists(search_dir):
                 logger.warning(f"Scan directory doesn't exist: {search_dir}")
                 continue
+                
             for root, dirs, files in os.walk(search_dir, topdown=True):
                 dirs[:] = [d for d in dirs if not d.startswith('.')]
                 for file in files:
-                    if file in ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml'] or file.startswith('docker-compose.'):
+                    # Only include files that match exactly our valid filenames
+                    if file in valid_filenames:
                         file_path = os.path.join(root, file)
                         try:
                             relative_path = os.path.relpath(file_path, compose_dir)
@@ -125,6 +139,7 @@ def scan_all_compose_files(compose_dir, extra_dirs, logger):
                         except ValueError as e:
                             logger.warning(f"Failed to compute relative path for {file_path}: {e}")
                             continue
+                            
         logger.info(f"Total compose files found during scan: {len(compose_files)}")
         get_compose_files_cached.cache_clear()
         return sorted(compose_files)

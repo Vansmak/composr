@@ -1085,7 +1085,230 @@ def save_caddy_file():
     except Exception as e:
         logger.error(f"Failed to save Caddy file: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
+# Volume management routes
+@app.route('/api/volumes')
+def get_volumes():
+    if client is None:
+        logger.error("Docker client not initialized")
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
     
+    try:
+        volumes = []
+        for volume in client.volumes.list():
+            volume_data = volume.attrs
+            
+            # Check which containers are using this volume
+            containers_using = []
+            for container in client.containers.list(all=True):
+                mounts = container.attrs.get('Mounts', [])
+                for mount in mounts:
+                    if mount.get('Name') == volume.name:
+                        containers_using.append(container.name)
+                        break
+            
+            volumes.append({
+                'name': volume.name,
+                'driver': volume_data.get('Driver', 'unknown'),
+                'created': volume_data.get('CreatedAt', 'unknown'),
+                'mountpoint': volume_data.get('Mountpoint', ''),
+                'scope': volume_data.get('Scope', 'local'),
+                'labels': volume_data.get('Labels', {}),
+                'in_use': len(containers_using) > 0,
+                'containers': containers_using
+            })
+        
+        logger.debug(f"Returning {len(volumes)} volumes")
+        return jsonify(volumes)
+    
+    except Exception as e:
+        logger.error(f"Failed to list volumes: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': f'Failed to list volumes: {str(e)}'})
+
+@app.route('/api/volumes/<name>/inspect')
+def inspect_volume(name):
+    if client is None:
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+    
+    try:
+        volume = client.volumes.get(name)
+        return jsonify({
+            'status': 'success',
+            'data': volume.attrs
+        })
+    except Exception as e:
+        logger.error(f"Failed to inspect volume {name}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/volumes/<name>/remove', methods=['POST'])
+def remove_volume(name):
+    if client is None:
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+    
+    try:
+        volume = client.volumes.get(name)
+        volume.remove()
+        return jsonify({
+            'status': 'success',
+            'message': f'Volume {name} removed successfully'
+        })
+    except Exception as e:
+        logger.error(f"Failed to remove volume {name}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/volumes/create', methods=['POST'])
+def create_volume():
+    if client is None:
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+    
+    try:
+        data = request.json
+        if not data or 'name' not in data:
+            return jsonify({'status': 'error', 'message': 'Volume name required'})
+        
+        volume = client.volumes.create(
+            name=data['name'],
+            driver=data.get('driver', 'local'),
+            labels=data.get('labels', {})
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Volume {data["name"]} created successfully',
+            'volume': volume.attrs
+        })
+    except Exception as e:
+        logger.error(f"Failed to create volume: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/volumes/prune', methods=['POST'])
+def prune_volumes():
+    if client is None:
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+    
+    try:
+        result = client.volumes.prune()
+        return jsonify({
+            'status': 'success',
+            'message': f'Pruned {len(result.get("VolumesDeleted", []))} volumes, reclaimed {result.get("SpaceReclaimed", 0)} bytes'
+        })
+    except Exception as e:
+        logger.error(f"Failed to prune volumes: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# Network management routes
+@app.route('/api/networks')
+def get_networks():
+    if client is None:
+        logger.error("Docker client not initialized")
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+    
+    try:
+        networks = []
+        for network in client.networks.list():
+            network_data = network.attrs
+            
+            # Get containers in this network
+            containers_in_network = []
+            for container_id, container_info in network_data.get('Containers', {}).items():
+                containers_in_network.append(container_info.get('Name', 'unknown'))
+            
+            # Get subnet if available
+            ipam_config = network_data.get('IPAM', {}).get('Config', [])
+            subnet = ipam_config[0].get('Subnet', 'N/A') if ipam_config else 'N/A'
+            
+            networks.append({
+                'id': network.short_id,
+                'name': network.name,
+                'driver': network_data.get('Driver', 'unknown'),
+                'scope': network_data.get('Scope', 'local'),
+                'internal': network_data.get('Internal', False),
+                'external': network_data.get('External', False),
+                'attachable': network_data.get('Attachable', False),
+                'created': network_data.get('Created', 'unknown'),
+                'subnet': subnet,
+                'containers': containers_in_network,
+                'labels': network_data.get('Labels', {})
+            })
+        
+        logger.debug(f"Returning {len(networks)} networks")
+        return jsonify(networks)
+    
+    except Exception as e:
+        logger.error(f"Failed to list networks: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': f'Failed to list networks: {str(e)}'})
+    
+@app.route('/api/networks/<id>/inspect')
+def inspect_network(id):
+    if client is None:
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+    
+    try:
+        network = client.networks.get(id)
+        return jsonify({
+            'status': 'success',
+            'data': network.attrs
+        })
+    except Exception as e:
+        logger.error(f"Failed to inspect network {id}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/networks/<id>/remove', methods=['POST'])
+def remove_network(id):
+    if client is None:
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+    
+    try:
+        network = client.networks.get(id)
+        network.remove()
+        return jsonify({
+            'status': 'success',
+            'message': f'Network {network.name} removed successfully'
+        })
+    except Exception as e:
+        logger.error(f"Failed to remove network {id}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/networks/create', methods=['POST'])
+def create_network():
+    if client is None:
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+    
+    try:
+        data = request.json
+        if not data or 'name' not in data:
+            return jsonify({'status': 'error', 'message': 'Network name required'})
+        
+        network = client.networks.create(
+            name=data['name'],
+            driver=data.get('driver', 'bridge'),
+            attachable=data.get('attachable', False),
+            internal=data.get('internal', False),
+            labels=data.get('labels', {})
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Network {data["name"]} created successfully',
+            'network': network.attrs
+        })
+    except Exception as e:
+        logger.error(f"Failed to create network: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/networks/prune', methods=['POST'])
+def prune_networks():
+    if client is None:
+        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+    
+    try:
+        result = client.networks.prune()
+        return jsonify({
+            'status': 'success',
+            'message': f'Pruned {len(result.get("NetworksDeleted", []))} networks'
+        })
+    except Exception as e:
+        logger.error(f"Failed to prune networks: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})    
 def perform_batch_action(action, container_ids):
     """Perform an action on multiple containers, using Docker Compose when possible"""
     results = {

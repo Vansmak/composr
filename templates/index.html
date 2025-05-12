@@ -33,15 +33,15 @@
             <div id="filter-menu" class="filter-menu">
                 <!-- Mobile filters (duplicates of the ones above, but visible on mobile) -->
                 <select id="stack-filter-mobile" class="filter-select">
-                    <option value="">All Stacks</option>
+                    <option value="">All Compose</option>
                 </select>
                 <select id="tag-filter-mobile" class="filter-select">
                     <option value="">All Tags</option>
                 </select>
                 <select id="group-filter-mobile" class="filter-select">
-                    <option value="none">Group</option>
-                    <option value="tag">Group by Tag</option>
-                    <option value="stack">Group by Stack</option>
+                    <option value="none">No Group</option>
+                    <option value="tag">Tags</option>
+                    <option value="stack">Compose</option>
                 </select>
                 <select id="status-filter-mobile" class="filter-select">
                     <option value="">Status</option>
@@ -49,10 +49,10 @@
                     <option value="exited">Stopped</option>
                 </select>
                 <select id="sort-filter-mobile" class="filter-select">
-                    <option value="name">Sort by Name</option>
-                    <option value="cpu">Sort by CPU</option>
-                    <option value="memory">Sort by Memory</option>
-                    <option value="uptime">Sort by Uptime</option>
+                    <option value="name">Name</option>
+                    <option value="cpu">CPU</option>
+                    <option value="memory">Memory</option>
+                    <option value="uptime">Uptime</option>
                 </select>
                 <!-- Theme selector (only in menu) -->
                 <select id="theme-selector-mobile" class="theme-select">
@@ -78,10 +78,10 @@
             <input type="text" id="search-input" class="filter-input" placeholder="Search containers...">
             <!-- Desktop-only filters -->
             <select id="stack-filter" class="filter-select">
-                <option value="">All Stacks</option>
+                <option value="">All Compose</option>
             </select>
             <select id="tag-filter" class="filter-select">
-                <option value="">All Tagss</option>
+                <option value="">All Tags</option>
             </select>
             
             <select id="status-filter" class="filter-select">
@@ -90,15 +90,15 @@
                 <option value="exited">Stopped</option>
             </select>
             <select id="group-filter" class="filter-select">
-                <option value="none">Group</option>
-                <option value="tag">Group by Tag</option>
-                <option value="stack">Group by Stack</option>
+                <option value="none">No Group</option>
+                <option value="tag">Tags</option>
+                <option value="stack">Compose</option>
             </select>
             <select id="sort-filter" class="filter-select">
-                <option value="name">Sort by Name</option>
-                <option value="cpu">Sort by CPU</option>
-                <option value="memory">Sort by Memory</option>
-                <option value="uptime">Sort by Uptime</option>
+                <option value="name">Name</option>
+                <option value="cpu">CPU</option>
+                <option value="memory">Memory</option>
+                <option value="uptime">Uptime</option>
             </select>
             <button id="toggle-view" class="btn btn-primary" onclick="toggleView()">⋮⋮</button>
             <button id="refresh-btn" class="refresh-btn">Refresh</button>

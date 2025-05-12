@@ -38,6 +38,7 @@ function toggleView() {
     }
 }
 // Render containers as a table
+// This should already be in table-view.js
 function renderContainersAsTable(containers) {
     const tableView = document.getElementById('table-view');
     const tableBody = document.getElementById('table-body');
@@ -67,8 +68,6 @@ function renderContainersAsTable(containers) {
         renderSingleContainerAsTableRow(container, tableBody);
     });
 }
-
-// Render containers grouped by stack as a table
 function renderContainersByStackAsTable(containers) {
     const tableBody = document.getElementById('table-body');
     let allTags = new Set();
@@ -104,25 +103,26 @@ function renderContainersByStackAsTable(containers) {
         const stats = stackStats[stackName];
         const composeFile = findComposeFileForStack(stackContainers[stackName]);
 
-        // Create stack header row
+        // Create stack header row with Details button
         const headerRow = document.createElement('tr');
         headerRow.className = 'stack-header-row';
         headerRow.innerHTML = `
             <td colspan="9">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="margin: 0; font-size: 1.1rem;">${stackName}</h3>
-                    <div class="stack-stats">
-                        <span title="Container count">${stats.running}/${stats.total} running</span>
-                        <span title="Total CPU usage">CPU: ${stats.cpu}%</span>
-                        <span title="Total memory usage">Mem: ${stats.memory} MB</span>
+                    <h3 style="margin: 0; font-size: 1.1rem;" onclick="showStackDetailsModal('${stackName}', '${composeFile || ''}')">${stackName}</h3>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div class="stack-stats" style="display: flex; gap: 1rem;">
+                            <span title="Container count">${stats.running}/${stats.total} running</span>
+                            <span title="Total CPU usage">CPU: ${stats.cpu}%</span>
+                            <span title="Total memory usage">Mem: ${stats.memory} MB</span>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" style="padding: 0.25rem 0.75rem; font-size: 1.25rem;" onclick="showStackDetailsModal('${stackName}', '${composeFile || ''}')">
+                            🐳
+                        </button>    
                     </div>
                 </div>
             </td>
         `;
-        if (composeFile) {
-            headerRow.title = "Click to open compose file";
-            headerRow.addEventListener('click', () => openComposeInEditor(composeFile));
-        }
         tableBody.appendChild(headerRow);
 
         // Render containers for this stack
@@ -135,6 +135,8 @@ function renderContainersByStackAsTable(containers) {
     updateTagFilterOptions(Array.from(allTags));
     updateStackFilterOptions(Array.from(allStacks));
 }
+
+
 
 // Render containers grouped by tag as a table
 function renderContainersByTagAsTable(containers) {
@@ -199,10 +201,7 @@ function renderSingleContainerAsTableRow(container, tableBody) {
         <td>${container.memory_usage} MB</td>
         <td>
             <div class="actions">
-                <button class="btn btn-success" onclick="containerAction('${container.id}', 'start')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
-                <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
-                <button class="btn btn-primary" onclick="containerAction('${container.id}', 'restart')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
-                <button class="btn btn-primary" onclick="showContainerPopup('${container.id}', '${container.name}')">More</button>
+                <button class="btn btn-primary" onclick="showContainerPopup('${container.id}', '${container.name}')">...</button>
             </div>
         </td>
     `;
@@ -335,25 +334,48 @@ function createCell(element) {
         if (element.tagName === 'INPUT' || element.tagName === 'SELECT') {
             clone.value = element.value;
             
-            // Two-way sync
-            clone.addEventListener('change', () => {
-                element.value = clone.value;
-                element.dispatchEvent(new Event('change'));
-            });
-            
-            element.addEventListener('change', () => {
-                clone.value = element.value;
-            });
-            
-            if (element.tagName === 'INPUT') {
-                clone.addEventListener('input', () => {
-                    element.value = clone.value;
-                    element.dispatchEvent(new Event('input'));
+            // Special handling for search input with debouncing
+            if (element.id === 'search-input') {
+                let debounceTimer;
+                
+                clone.addEventListener('input', (e) => {
+                    // Update the original element value
+                    element.value = e.target.value;
+                    
+                    // Clear existing timer
+                    clearTimeout(debounceTimer);
+                    
+                    // Set new timer to refresh after user stops typing
+                    debounceTimer = setTimeout(() => {
+                        element.dispatchEvent(new Event('input'));
+                    }, 300); // Wait 300ms after user stops typing
                 });
                 
+                // Keep values in sync
                 element.addEventListener('input', () => {
                     clone.value = element.value;
                 });
+            } else {
+                // For other inputs and selects, use the original sync behavior
+                clone.addEventListener('change', () => {
+                    element.value = clone.value;
+                    element.dispatchEvent(new Event('change'));
+                });
+                
+                element.addEventListener('change', () => {
+                    clone.value = element.value;
+                });
+                
+                if (element.tagName === 'INPUT') {
+                    clone.addEventListener('input', () => {
+                        element.value = clone.value;
+                        element.dispatchEvent(new Event('input'));
+                    });
+                    
+                    element.addEventListener('input', () => {
+                        clone.value = element.value;
+                    });
+                }
             }
         }
         
@@ -466,17 +488,17 @@ function restoreControlsFromTable() {
     // Since we're cloning elements, we don't need to restore them
     // The original controls are still in their place, just hidden
 }
-// Update sortTable function in table-view.js
-let currentSortColumn = null;
-let currentSortDirection = 'asc';
-
+// Simplified sorting for table view
 function sortTable(key) {
-    // If clicking the same column, toggle direction
-    if (currentSortColumn === key) {
-        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
-    } else {
-        currentSortColumn = key;
-        currentSortDirection = 'asc';
+    let direction = 'asc';
+    
+    // For metrics (cpu, memory, uptime), default to descending (highest first)
+    if (key === 'cpu' || key === 'memory' || key === 'uptime') {
+        direction = 'desc';
+    }
+    // For name and status, use ascending (A-Z)
+    else {
+        direction = 'asc';
     }
     
     // Update visual indicators
@@ -486,11 +508,11 @@ function sortTable(key) {
     
     const currentHeader = document.querySelector(`#table-view th[onclick="sortTable('${key}')"]`);
     if (currentHeader) {
-        currentHeader.classList.add(`sorted-${currentSortDirection}`);
+        currentHeader.classList.add(`sorted-${direction}`);
     }
     
     // Call refreshContainers with sort parameters
-    refreshContainers(key, currentSortDirection);
+    refreshContainers(key, direction);
 }
 // Save view preference
 function saveViewPreference(viewType) {

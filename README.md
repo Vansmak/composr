@@ -31,6 +31,31 @@ A web-based interface for managing Docker containers and docker-compose configur
 - Batch operations for multiple containers
 - Desktop/mobile filter layout optimization
 
+## Terminal Feature
+
+Version 1.2.0 introduces a new container terminal feature, allowing you to execute commands directly within your containers from the web interface.
+
+### How to Use
+
+1. Click on a container card to open the container details popup
+2. Click the "Terminal" button in the actions section
+3. Enter commands in the terminal prompt that appears
+
+### Notes
+
+- The available commands depend on what's installed in the target container
+- Minimal containers (like Alpine-based images) may have limited command availability
+- Common commands that work in most containers:
+  - `echo $PATH` - Show the PATH environment variable
+  - `pwd` - Show current directory
+  - `cat /etc/os-release` - Show OS information (if available)
+  - `env` - List all environment variables
+
+**For your own Alpine-based containers**: If you want to enhance terminal capabilities in containers you maintain, you can add utilities to your Dockerfile:
+```dockerfile
+# Example addition to your own Alpine-based Dockerfile
+RUN apk update && apk add busybox-extras
+```
 ## Installation
 
 ### Using Docker Compose (Recommended)
@@ -157,5 +182,7 @@ The application expects a specific path to your parent Directory before your doc
 ## Security Notice
 
 ⚠️ **Warning**: This application has full control over Docker containers on your system. It should only be deployed in trusted environments and should not be exposed to the public internet without proper authentication.
+coming soon ![image](https://github.com/user-attachments/assets/e7b657bb-1f95-4f7c-8b38-370c5d7909c5)
+
 ![Screenshot 2025-04-25 at 13-59-38 Composr](https://github.com/user-attachments/assets/49876da2-7131-4430-817a-d16f4ef6f673)
 ![Screenshot 2025-04-25 at 14-00-56 Composr](https://github.com/user-attachments/assets/dc4b4347-2032-4ede-b302-229d828c0b1c)![Screenshot_20250425-142844](https://github.com/user-attachments/assets/e0225c62-83cb-4a38-928f-2f56b033e393)
