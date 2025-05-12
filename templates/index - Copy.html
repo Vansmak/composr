@@ -11,7 +11,7 @@
     <div class="container">
         <header>
             <img src="/static/logo.svg" alt="Composr Logo" class="logo" onclick="toggleFilterMenu()">
-            <div class="system-stats">
+            <div class="system-stats" onclick="toggleStats()">
                 <div class="stats-compact">
                     <span>Containers: <span id="total-containers">--</span></span>
                     <span>CPU: <span id="cpu-count">--</span></span>
@@ -39,12 +39,12 @@
                     <option value="">All Tags</option>
                 </select>
                 <select id="group-filter-mobile" class="filter-select">
-                    <option value="none">Group</option>
+                    <option value="none">No Grouping</option>
                     <option value="tag">Group by Tag</option>
                     <option value="stack">Group by Stack</option>
                 </select>
                 <select id="status-filter-mobile" class="filter-select">
-                    <option value="">Status</option>
+                    <option value="">All Statuses</option>
                     <option value="running">Running</option>
                     <option value="exited">Stopped</option>
                 </select>
@@ -85,12 +85,12 @@
             </select>
             
             <select id="status-filter" class="filter-select">
-                <option value="">Status</option>
+                <option value="">All Statuses</option>
                 <option value="running">Running</option>
                 <option value="exited">Stopped</option>
             </select>
             <select id="group-filter" class="filter-select">
-                <option value="none">Group</option>
+                <option value="none">No Grouping</option>
                 <option value="tag">Group by Tag</option>
                 <option value="stack">Group by Stack</option>
             </select>

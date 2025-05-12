@@ -46,10 +46,7 @@ function toggleFilterMenu() {
 
 }
 
-function toggleStats() {
-    const stats = document.querySelector('.system-stats');
-    stats.classList.toggle('expanded');
-}
+
 
 function syncFilters(sourceId, targetId) {
     const source = document.getElementById(sourceId);
@@ -85,21 +82,23 @@ function switchTab(tabName) {
     document.querySelector(`[onclick="switchTab('${tabName}')"]`).classList.add('active');
     document.getElementById(`${tabName}-tab`).classList.add('active');
     
+    // Toggle filter controls visibility
+    const filterControls = document.querySelector('.filter-controls');
+    if (filterControls) {
+        filterControls.style.display = (tabName === 'containers') ? 'flex' : 'none';
+    }
+    
+    // Existing tab-specific logic
     if (tabName === 'containers') {
         refreshContainers();
+    } else if (tabName === 'images') {
+        loadImages();
     } else if (tabName === 'config') {
-        // Switch to compose subtab
         switchSubTab('compose');
-        
-        // Check if there's a pending file, but don't call scanComposeFiles automatically
-        // This prevents infinite loops
         const pendingFile = localStorage.getItem('pendingComposeFile');
         if (pendingFile) {
             console.log('Found pending compose file when switching to config tab:', pendingFile);
-            // We'll let the compose tab handle loading this file on its own
         }
-    } else if (tabName === 'images') {
-        loadImages();
     }
     
     if (document.getElementById('batch-actions')) {
@@ -123,22 +122,31 @@ function switchSubTab(subtabName) {
     }
 }
 
-// System Stats
+// Replace existing toggleStats function (disabled)
+function toggleStats() {
+    // No toggling; stats always use .stats-grid
+}
+
+// Replace existing loadSystemStats function
 function loadSystemStats() {
     fetch('/api/system')
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                document.getElementById('total-containers').textContent = data.total_containers || '--';
-                document.getElementById('total-containers-grid').textContent = data.total_containers || '--';
-                document.getElementById('running-containers').textContent = data.running_containers || '--';
-                document.getElementById('cpu-count').textContent = data.cpu_count || '--';
-                document.getElementById('cpu-count-grid').textContent = data.cpu_count || '--';
-                document.getElementById('memory-usage').textContent = data.memory_used || '--';
-                document.getElementById('memory-usage-grid').textContent = data.memory_used || '--';
-                document.getElementById('memory-total').textContent = data.memory_total || '--';
-                document.getElementById('memory-total-grid').textContent = data.memory_total || '--';
-                document.getElementById('memory-progress').style.width = `${data.memory_percent || 0}%`;
+                // Populate .stats-grid IDs with fallback checks
+                const totalContainers = document.getElementById('total-containers-grid');
+                const runningContainers = document.getElementById('running-containers');
+                const cpuCount = document.getElementById('cpu-count-grid');
+                const memoryUsage = document.getElementById('memory-usage-grid');
+                const memoryTotal = document.getElementById('memory-total-grid');
+                const memoryProgress = document.getElementById('memory-progress');
+
+                if (totalContainers) totalContainers.textContent = data.total_containers || '--';
+                if (runningContainers) runningContainers.textContent = data.running_containers || '--';
+                if (cpuCount) cpuCount.textContent = data.cpu_count || '--';
+                if (memoryUsage) memoryUsage.textContent = data.memory_used || '--';
+                if (memoryTotal) memoryTotal.textContent = data.memory_total || '--';
+                if (memoryProgress) memoryProgress.style.width = `${data.memory_percent || 0}%`;
             } else {
                 console.error('System stats error:', data.message);
                 showMessage('error', data.message || 'Failed to load system stats');
@@ -196,8 +204,8 @@ function updateTagFilterOptions(tags) {
     const tagFilterMobile = document.getElementById('tag-filter-mobile');
     const currentValue = tagFilter.value || tagFilterMobile.value;
     
-    tagFilter.innerHTML = '<option value="">All Tags</option>';
-    tagFilterMobile.innerHTML = '<option value="">All Tags</option>';
+    tagFilter.innerHTML = '<option value="">Tags</option>';
+    tagFilterMobile.innerHTML = '<option value="">Tags</option>';
     
     const tagFiltersArea = document.getElementById('tag-filters');
     if (tagFiltersArea) {
@@ -230,38 +238,43 @@ function filterByTag(tag) {
 }
 
 function renderContainers(containers) {
-    const list = document.getElementById('containers-list');
+    const gridView = document.getElementById('grid-view');
+    const tableView = document.getElementById('table-view');
     const noContainers = document.getElementById('no-containers');
-    const isBatchMode = list.classList.contains('batch-mode');
+    const isBatchMode = document.getElementById('containers-list').classList.contains('batch-mode');
     const tagFilter = document.getElementById('tag-filter').value || document.getElementById('tag-filter-mobile').value;
     const stackFilter = document.getElementById('stack-filter').value || document.getElementById('stack-filter-mobile').value;
     const group = document.getElementById('group-filter').value || document.getElementById('group-filter-mobile').value || 'none';
     const sort = document.getElementById('sort-filter').value || document.getElementById('sort-filter-mobile').value || 'name';
-    
-    list.innerHTML = '';
-    
+
+    // Clear existing content
+    document.getElementById('containers-list').innerHTML = '';
+    if (tableView) {
+        document.getElementById('table-body').innerHTML = '';
+    }
+
     if (!Array.isArray(containers) || !containers.length) {
         noContainers.style.display = 'block';
         return;
     }
-    
+
     noContainers.style.display = 'none';
-    
+
     let allTags = new Set();
     let allStacks = new Set();
-    let filteredContainers = [...containers]; // Create a copy to filter
-    
+    let filteredContainers = [...containers];
+
     // Apply filters
     if (tagFilter) {
-        filteredContainers = filteredContainers.filter(container => 
+        filteredContainers = filteredContainers.filter(container =>
             container.tags && container.tags.includes(tagFilter));
     }
-    
+
     if (stackFilter) {
-        filteredContainers = filteredContainers.filter(container => 
+        filteredContainers = filteredContainers.filter(container =>
             extractStackName(container) === stackFilter);
     }
-    
+
     // Collect all tags and stacks for the filter dropdowns
     filteredContainers.forEach(container => {
         if (container.tags && Array.isArray(container.tags)) {
@@ -269,36 +282,38 @@ function renderContainers(containers) {
         }
         allStacks.add(extractStackName(container));
     });
-    
-    // Choose rendering method based on grouping
-    if (group === 'stack') {
-        renderContainersByStack(filteredContainers);
-        return;
-    } else if (group === 'tag' || sort === 'tag') {
-        renderContainersByTag(filteredContainers);
-        return;
+
+    // Choose rendering method based on active view
+    if (tableView && tableView.classList.contains('active')) {
+        renderContainersAsTable(filteredContainers);
+    } else {
+        if (group === 'stack') {
+            renderContainersByStack(filteredContainers);
+        } else if (group === 'tag' || sort === 'tag') {
+            renderContainersByTag(filteredContainers);
+        } else {
+            // Sort containers
+            if (sort === 'name') {
+                filteredContainers.sort((a, b) => a.name.localeCompare(b.name));
+            } else if (sort === 'cpu') {
+                filteredContainers.sort((a, b) => (b.cpu_percent || 0) - (a.cpu_percent || 0));
+            } else if (sort === 'memory') {
+                filteredContainers.sort((a, b) => (b.memory_usage || 0) - (a.memory_usage || 0));
+            } else if (sort === 'uptime') {
+                filteredContainers.sort((a, b) => {
+                    const aMinutes = a.uptime ? a.uptime.minutes : 0;
+                    const bMinutes = b.uptime ? b.uptime.minutes : 0;
+                    return bMinutes - aMinutes;
+                });
+            }
+
+            // Render containers
+            filteredContainers.forEach(container => {
+                renderSingleContainer(container, document.getElementById('containers-list'));
+            });
+        }
     }
-    
-    // Sort containers
-    if (sort === 'name') {
-        filteredContainers.sort((a, b) => a.name.localeCompare(b.name));
-    } else if (sort === 'cpu') {
-        filteredContainers.sort((a, b) => (b.cpu_percent || 0) - (a.cpu_percent || 0));
-    } else if (sort === 'memory') {
-        filteredContainers.sort((a, b) => (b.memory_usage || 0) - (a.memory_usage || 0));
-    } else if (sort === 'uptime') {
-        filteredContainers.sort((a, b) => {
-            const aMinutes = a.uptime ? a.uptime.minutes : 0;
-            const bMinutes = b.uptime ? b.uptime.minutes : 0;
-            return bMinutes - aMinutes;
-        });
-    }
-    
-    // Render containers
-    filteredContainers.forEach(container => {
-        renderSingleContainer(container, list);
-    });
-    
+
     // Update filter options
     updateTagFilterOptions(Array.from(allTags));
     updateStackFilterOptions(Array.from(allStacks));
@@ -344,8 +359,8 @@ function renderSingleContainer(container, parentElement) {
     card.dataset.cpu = container.cpu_percent;
     card.dataset.memory = container.memory_usage;
     const uptimeDisplay = container.uptime && container.uptime.display ? container.uptime.display : 'N/A';
-    const uptimeLong = uptimeDisplay.includes('d') ? 'uptime-long' : '';
-    
+    // Removed uptimeLong logic to ensure consistent color
+
     // Create tags HTML
     let tagsHtml = '';
     if (container.tags && container.tags.length) {
@@ -357,14 +372,14 @@ function renderSingleContainer(container, parentElement) {
     } else {
         tagsHtml = '<div class="container-tags"></div>';
     }
-    
+
     card.innerHTML = `
         <div class="container-header">
             <span class="container-name" onclick="openCustomContainerURL('${container.id}')" title="${container.name}">${container.name}</span>
             <div class="container-header-right">
                 <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
-                <span class="uptime-badge ${uptimeLong}">${uptimeDisplay}</span>
-                <button class="btn btn-primary" style="padding: 2px 5px; font-size: 10px; min-width: auto;" onclick="showContainerPopup('${container.id}', '${container.name}')">⋮</button>
+                <span class="uptime-badge">${uptimeDisplay}</span>
+                <button class="btn btn-primary" style="padding: 2px 5px; font-size: 10px; min-width: auto;" onclick="showContainerPopup('${container.id}', '${container.name}')">...</button>
             </div>
         </div>
         <div class="container-body">
@@ -379,9 +394,9 @@ function renderSingleContainer(container, parentElement) {
             </div>
         </div>
     `;
-    
+
     parentElement.appendChild(card);
-    
+
     if (isBatchMode) {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -392,17 +407,52 @@ function renderSingleContainer(container, parentElement) {
         card.appendChild(checkbox);
     }
 }
+// Toggle between grid and table view for images
+function toggleImageView() {
+    const gridView = document.getElementById('images-grid-view');
+    const tableView = document.getElementById('images-table-view');
+    const toggleButton = document.getElementById('toggle-image-view');
+    
+    if (gridView.classList.contains('active')) {
+        gridView.classList.remove('active');
+        tableView.classList.add('active');
+        toggleButton.textContent = '⋮⋮';
+        localStorage.setItem('imageViewPreference', 'table');
+    } else {
+        tableView.classList.remove('active');
+        gridView.classList.add('active');
+        toggleButton.textContent = '≡';
+        localStorage.setItem('imageViewPreference', 'grid');
+    }
+    
+    loadImages(); // Reload images in the new view
+}
 
-async function refreshContainers() {
+// Update refreshContainers in main.js
+async function refreshContainers(sortKey = null, sortDirection = 'asc') {
     try {
         setLoading(true, 'Loading containers...');
+
+        const tableView = document.getElementById('table-view');
+        const filterControls = document.querySelector('.filter-controls');
+        
+        if (tableView && tableView.classList.contains('active')) {
+            if (filterControls) {
+                filterControls.style.display = 'none';
+            }
+            // Ensure controls are in table
+            moveControlsToTable();
+        }
         
         const search = document.getElementById('search-input').value || '';
         const status = document.getElementById('status-filter').value || document.getElementById('status-filter-mobile').value || '';
         const tag = document.getElementById('tag-filter').value || document.getElementById('tag-filter-mobile').value || '';
         const stack = document.getElementById('stack-filter').value || document.getElementById('stack-filter-mobile').value || '';
         
-        const url = `/api/containers?search=${encodeURIComponent(search)}&status=${status}&tag=${encodeURIComponent(tag)}&stack=${encodeURIComponent(stack)}&nocache=${Date.now()}`;
+        // Use provided sort parameters or fall back to dropdown value
+        const sort = sortKey || document.getElementById('sort-filter').value || document.getElementById('sort-filter-mobile').value || 'name';
+        
+        const url = `/api/containers?search=${encodeURIComponent(search)}&status=${status}&tag=${encodeURIComponent(tag)}&stack=${encodeURIComponent(stack)}&sort=${sort}&direction=${sortDirection}&nocache=${Date.now()}`;
         
         const response = await fetch(url);
         if (!response.ok) {
@@ -423,6 +473,25 @@ async function refreshContainers() {
             }, 30000);
         }
         
+        // Add batch actions for table view in batch mode
+        if (tableView && tableView.classList.contains('active') && tableView.classList.contains('batch-mode')) {
+            // We're in table view and batch mode - make sure batch actions are visible
+            const tableBatchActions = document.getElementById('table-batch-actions');
+            if (tableBatchActions) {
+                tableBatchActions.style.display = 'flex';
+                
+                // If empty, populate it
+                if (tableBatchActions.children.length === 0) {
+                    tableBatchActions.innerHTML = `
+                        <button class="btn btn-success" onclick="batchAction('start')">Start</button>
+                        <button class="btn btn-error" onclick="batchAction('stop')">Stop</button>
+                        <button class="btn btn-primary" onclick="batchAction('restart')">Restart</button>
+                        <button class="btn btn-error" onclick="batchAction('remove')">Remove</button>
+                    `;
+                }
+            }
+        }
+
     } catch (error) {
         console.error('Failed to refresh containers:', error);
         showMessage('error', 'Failed to refresh containers');
@@ -805,42 +874,118 @@ async function repullContainer(id) {
     }
 }
 
-// Batch mode functions
+// Updated toggleBatchMode function
 function toggleBatchMode() {
     const containersList = document.getElementById('containers-list');
+    const tableView = document.getElementById('table-view');
     const batchActions = document.getElementById('batch-actions');
     const toggleButton = document.getElementById('toggle-batch-mode');
+    const selectAllCheckbox = document.getElementById('select-all');
     
     const isBatchMode = containersList.classList.toggle('batch-mode');
+    if (tableView) {
+        tableView.classList.toggle('batch-mode', isBatchMode);
+    }
     
     if (isBatchMode) {
-        toggleButton.textContent = 'Exit Batch';
-        batchActions.classList.add('visible');
+        toggleButton.classList.add('active');
         
-        document.querySelectorAll('.container-card').forEach(card => {
-            if (!card.querySelector('.container-select')) {
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.className = 'container-select';
-                checkbox.addEventListener('change', (e) => {
-                    card.classList.toggle('selected', e.target.checked);
-                });
-                card.appendChild(checkbox);
-            }
-        });
+        // Handle grid/table view appropriately
+        if (tableView && tableView.classList.contains('active')) {
+            // Table view - refresh with batch mode
+            refreshContainers();
+            // Add batch actions to table header
+            refreshTableBatchActions();
+        } else {
+            // Grid view - show batch actions and add checkboxes
+            batchActions.classList.add('visible');
+            
+            document.querySelectorAll('.container-card').forEach(card => {
+                if (!card.querySelector('.container-select')) {
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.className = 'container-select';
+                    checkbox.addEventListener('change', (e) => {
+                        card.classList.toggle('selected', e.target.checked);
+                    });
+                    card.appendChild(checkbox);
+                }
+            });
+        }
+        
+        if (selectAllCheckbox) {
+            selectAllCheckbox.disabled = false;
+            selectAllCheckbox.classList.remove('disabled');
+        }
     } else {
-        toggleButton.textContent = 'Batch';
+        // Exit batch mode
+        toggleButton.classList.remove('active');
         batchActions.classList.remove('visible');
         
-        document.querySelectorAll('.container-select').forEach(checkbox => {
+        // Remove table batch actions
+        const tableBatchActions = document.getElementById('table-batch-actions');
+        if (tableBatchActions && tableBatchActions.parentNode) {
+            tableBatchActions.parentNode.removeChild(tableBatchActions);
+        }
+        
+        if (selectAllCheckbox) {
+            selectAllCheckbox.disabled = true;
+            selectAllCheckbox.classList.add('disabled');
+            selectAllCheckbox.checked = false;
+        }
+        
+        // Clear selections
+        document.querySelectorAll('.container-select, .batch-checkbox').forEach(checkbox => {
             checkbox.checked = false;
         });
-        document.querySelectorAll('.container-card').forEach(card => {
-            card.classList.remove('selected');
+        document.querySelectorAll('.container-card, #table-view tr').forEach(item => {
+            item.classList.remove('selected');
         });
+        
+        // Refresh if in table view
+        if (tableView && tableView.classList.contains('active')) {
+            refreshContainers();
+        }
     }
 }
 
+// Add this function to your main.js
+function refreshTableBatchActions() {
+    // First, make sure we're in table view and batch mode
+    const tableView = document.getElementById('table-view');
+    if (!tableView || !tableView.classList.contains('active') || !tableView.classList.contains('batch-mode')) {
+        return;
+    }
+    
+    // Find the actions column header (last column)
+    const actionsHeader = document.querySelector('#table-headers-row th:last-child');
+    if (!actionsHeader) {
+        return;
+    }
+    
+    // Check if we already have batch actions
+    let batchActions = document.getElementById('table-batch-actions');
+    
+    // If not, create them
+    if (!batchActions) {
+        batchActions = document.createElement('div');
+        batchActions.id = 'table-batch-actions';
+        batchActions.style.display = 'flex';
+        batchActions.style.gap = '0.5rem';
+        batchActions.style.marginBottom = '0.5rem';
+        
+        // Add buttons
+        batchActions.innerHTML = `
+            <button class="btn btn-success" onclick="batchAction('start')">Start</button>
+            <button class="btn btn-error" onclick="batchAction('stop')">Stop</button>
+            <button class="btn btn-primary" onclick="batchAction('restart')">Restart</button>
+            <button class="btn btn-error" onclick="batchAction('remove')">Remove</button>
+        `;
+        
+        // Add to the actions header
+        actionsHeader.appendChild(batchActions);
+    }
+}
 function toggleAllContainers() {
     const checkboxes = document.querySelectorAll('.container-select');
     const allSelected = Array.from(checkboxes).every(cb => cb.checked);
@@ -851,13 +996,17 @@ function toggleAllContainers() {
     });
 }
 
+// Update batchAction to handle table view selections
 function batchAction(action) {
-    const selectedCards = document.querySelectorAll('.container-card.selected');
-    if (selectedCards.length === 0) {
+    const gridSelectedCards = document.querySelectorAll('.container-card.selected');
+    const tableSelectedRows = document.querySelectorAll('#table-view tr.selected');
+    const selectedItems = [...gridSelectedCards, ...tableSelectedRows];
+
+    if (selectedItems.length === 0) {
         showMessage('error', 'No containers selected');
         return;
     }
-    
+
     let confirmMessage = '';
     switch(action) {
         case 'start': confirmMessage = 'Start all selected containers?'; break;
@@ -865,17 +1014,15 @@ function batchAction(action) {
         case 'restart': confirmMessage = 'Restart all selected containers?'; break;
         case 'remove': confirmMessage = 'Remove all selected containers? This cannot be undone!'; break;
     }
-    
+
     if (!confirm(confirmMessage)) {
         return;
     }
-    
-    setLoading(true, `Processing ${selectedCards.length} containers...`);
-    
-    // Get all selected container IDs
-    const containerIds = Array.from(selectedCards).map(card => card.dataset.id);
-    
-    // Call the batch API endpoint
+
+    setLoading(true, `Processing ${selectedItems.length} containers...`);
+
+    const containerIds = Array.from(selectedItems).map(item => item.dataset.id);
+
     fetch(`/api/batch/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -907,17 +1054,22 @@ function loadComposeFiles() {
             const select = document.getElementById('compose-files');
             select.innerHTML = '<option value="">Select a compose file...</option>';
             if (data.files && data.files.length) {
+                console.log('Available compose files:', data.files);
+                
+                // Add options to dropdown
                 data.files.forEach(file => {
                     const option = document.createElement('option');
                     option.value = file;
                     option.textContent = file;
                     select.appendChild(option);
                 });
+                
+                // Set current file if it exists
                 if (currentComposeFile) {
                     select.value = currentComposeFile;
                 }
                 
-                // Check if there's a pending file to load
+                // Process pending file if exists
                 const pendingFile = localStorage.getItem('pendingComposeFile');
                 if (pendingFile) {
                     console.log('Found pending compose file to load:', pendingFile);
@@ -925,41 +1077,41 @@ function loadComposeFiles() {
                     // Clear the pending file first to prevent loops
                     localStorage.removeItem('pendingComposeFile');
                     
-                    // Use setTimeout to ensure the options are fully rendered
-                    setTimeout(() => {
-                        // Direct call to tryLoadCompose-like function
-                        const composeSelect = document.getElementById('compose-files');
-                        const availableOptions = Array.from(composeSelect.options)
-                            .map(opt => opt.value)
-                            .filter(val => val);
+                    // Get available options for easier debugging
+                    const availableOptions = Array.from(select.options)
+                        .map(opt => opt.value)
+                        .filter(val => val);
+                    console.log('Available options:', availableOptions);
+                    
+                    // Find the best match
+                    let matchedOption = findBestMatchingFile(pendingFile, availableOptions);
+                    
+                    if (matchedOption) {
+                        console.log('Found matching file:', matchedOption);
+                        select.value = matchedOption;
+                        currentComposeFile = matchedOption;
+                        loadCompose();
+                        console.log('Successfully loaded pending compose file');
+                    } else {
+                        console.warn('No matching file found for:', pendingFile);
                         
-                        let matchedOption = null;
-                        
-                        // Try exact match
-                        if (availableOptions.includes(pendingFile)) {
-                            matchedOption = pendingFile;
-                            console.log('Found exact match for pending file:', matchedOption);
-                        } else {
-                            // Try by parts
-                            const parts = pendingFile.split('/');
-                            const fileName = parts[parts.length - 1];
-                            
-                            for (const option of availableOptions) {
-                                if (option.endsWith(`/${fileName}`)) {
-                                    matchedOption = option;
-                                    console.log('Found match by filename for pending file:', matchedOption);
-                                    break;
-                                }
-                            }
+                        // Direct load as last resort
+                        if (pendingFile.includes('immich')) {
+                            directLoadCompose(pendingFile)
+                                .catch(() => {
+                                    // Special handling for immich
+                                    const basePathWithoutExt = pendingFile.substring(0, pendingFile.lastIndexOf('.'));
+                                    const altExt = pendingFile.endsWith('.yml') ? '.yaml' : '.yml';
+                                    const altPath = basePathWithoutExt + altExt;
+                                    
+                                    return directLoadCompose(altPath);
+                                })
+                                .catch(() => {
+                                    console.error('All direct load attempts failed');
+                                    showMessage('error', `Could not load ${pendingFile}`);
+                                });
                         }
-                        
-                        if (matchedOption) {
-                            composeSelect.value = matchedOption;
-                            currentComposeFile = matchedOption;
-                            loadCompose();
-                            console.log('Successfully loaded pending compose file');
-                        }
-                    }, 100);
+                    }
                 }
             } else {
                 console.warn('No compose files found');
@@ -970,6 +1122,70 @@ function loadComposeFiles() {
             console.error('Failed to load compose files:', error);
             showMessage('error', `Failed to load compose files: ${error.message}`);
         });
+}
+
+// Helper function to find the best matching file
+function findBestMatchingFile(pendingFile, availableOptions) {
+    // 1. Exact match
+    if (availableOptions.includes(pendingFile)) {
+        console.log('Found exact match for pending file:', pendingFile);
+        return pendingFile;
+    }
+    
+    // 2. Case-insensitive match
+    const lowerPendingFile = pendingFile.toLowerCase();
+    for (const option of availableOptions) {
+        if (option.toLowerCase() === lowerPendingFile) {
+            console.log('Found case-insensitive match:', option);
+            return option;
+        }
+    }
+    
+    // 3. Match ignoring extension
+    if (pendingFile.includes('.')) {
+        const pendingBasePath = pendingFile.substring(0, pendingFile.lastIndexOf('.'));
+        for (const option of availableOptions) {
+            if (option.includes('.')) {
+                const optionBasePath = option.substring(0, option.lastIndexOf('.'));
+                if (pendingBasePath.toLowerCase() === optionBasePath.toLowerCase()) {
+                    console.log('Found match ignoring extension:', option);
+                    return option;
+                }
+            }
+        }
+    }
+    
+    // 4. Match by path components (for ../path/file.ext format)
+    if (pendingFile.includes('/')) {
+        const pendingParts = pendingFile.split('/');
+        const pendingDirLower = pendingParts[pendingParts.length - 2].toLowerCase();
+        const pendingFileBaseLower = pendingParts[pendingParts.length - 1].split('.')[0].toLowerCase();
+        
+        for (const option of availableOptions) {
+            if (option.includes('/')) {
+                const optionParts = option.split('/');
+                const optionDirLower = optionParts[optionParts.length - 2].toLowerCase();
+                const optionFileBaseLower = optionParts[optionParts.length - 1].split('.')[0].toLowerCase();
+                
+                if (pendingDirLower === optionDirLower && pendingFileBaseLower === optionFileBaseLower) {
+                    console.log('Found match by path components:', option);
+                    return option;
+                }
+            }
+        }
+    }
+    
+    // 5. Special case for immich
+    if (pendingFile.toLowerCase().includes('immich')) {
+        for (const option of availableOptions) {
+            if (option.toLowerCase().includes('immich')) {
+                console.log('Found immich-specific match:', option);
+                return option;
+            }
+        }
+    }
+    
+    return null;
 }
 
 // Also update the scanComposeFiles function similarly
@@ -1061,11 +1277,16 @@ async function loadCompose() {
     }
     try {
         setLoading(true, `Loading ${currentComposeFile}...`);
+        
+        // Try to load using the standard API endpoint
         const url = `/api/compose?file=${encodeURIComponent(currentComposeFile)}`;
+        console.log(`Loading compose file from: ${url}`);
+        
         const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
         }
+        
         const result = await response.json();
         if (result.content) {
             document.getElementById('compose-editor').value = result.content;
@@ -1076,18 +1297,60 @@ async function loadCompose() {
             console.error('Failed to load compose file:', result.message);
             showMessage('error', result.message || 'Failed to load compose file');
             
-            // If the error mentions "not found", try a fallback to docker-compose.yml (with yml extension)
-            if (result.message && result.message.includes('not found') && currentComposeFile.endsWith('.yaml')) {
-                const alternateFile = currentComposeFile.replace('.yaml', '.yml');
-                console.log(`Trying alternate extension: ${alternateFile}`);
-                currentComposeFile = alternateFile;
-                loadCompose(); // Recursively try with the new extension
-                return;
+            // If the file has a specific extension, try the alternate extension
+            if (currentComposeFile.endsWith('.yml') || currentComposeFile.endsWith('.yaml')) {
+                const basePathWithoutExt = currentComposeFile.substring(0, currentComposeFile.lastIndexOf('.'));
+                const altExt = currentComposeFile.endsWith('.yml') ? '.yaml' : '.yml';
+                const altPath = basePathWithoutExt + altExt;
+                
+                console.log(`Trying alternate extension: ${altPath}`);
+                try {
+                    const altUrl = `/api/compose?file=${encodeURIComponent(altPath)}`;
+                    const altResponse = await fetch(altUrl);
+                    const altResult = await altResponse.json();
+                    
+                    if (altResult.status === 'success' && altResult.content) {
+                        document.getElementById('compose-editor').value = altResult.content;
+                        currentComposeFile = altResult.file;
+                        document.getElementById('compose-files').value = currentComposeFile;
+                        showMessage('success', `Loaded compose file: ${currentComposeFile}`);
+                    } else {
+                        throw new Error('Alternate extension also failed');
+                    }
+                } catch (altError) {
+                    console.error('Failed with alternate extension:', altError);
+                    showMessage('error', 'Failed to load compose file with either extension');
+                }
             }
         }
     } catch (error) {
         console.error('Failed to load compose file:', error);
         showMessage('error', `Failed to load compose file: ${error.message}`);
+        
+        // If this is immich and we're having trouble, try a more direct approach
+        if (currentComposeFile.includes('immich')) {
+            console.log('Special handling for immich load failure');
+            let pathToTry = currentComposeFile;
+            
+            if (currentComposeFile.startsWith('../')) {
+                // Try without the ../
+                pathToTry = currentComposeFile.substring(3);
+                console.log(`Trying direct path: ${pathToTry}`);
+                
+                try {
+                    const directUrl = `/api/compose?file=${encodeURIComponent(pathToTry)}`;
+                    const directResponse = await fetch(directUrl);
+                    const directResult = await directResponse.json();
+                    
+                    if (directResult.status === 'success' && directResult.content) {
+                        document.getElementById('compose-editor').value = directResult.content;
+                        showMessage('success', `Loaded ${pathToTry} directly`);
+                    }
+                } catch (directError) {
+                    console.error('Direct load also failed:', directError);
+                }
+            }
+        }
     } finally {
         setLoading(false);
     }
@@ -1376,22 +1639,34 @@ function saveCaddyFileAndReload() {
     });
 }
 
-// Images management functions
+// Update loadImages function to render both views
 function loadImages() {
     setLoading(true, 'Loading images...');
     fetch('/api/images')
         .then(response => response.json())
         .then(images => {
             setLoading(false);
+            
+            // Render grid view
             const imagesList = document.getElementById('images-list');
             imagesList.innerHTML = '';
             
+            // Render table view
+            const tableBody = document.getElementById('images-table-body');
+            if (tableBody) {
+                tableBody.innerHTML = '';
+            }
+            
             if (!images.length) {
                 imagesList.innerHTML = '<div class="no-containers">No images found.</div>';
+                if (tableBody) {
+                    tableBody.innerHTML = '<tr><td colspan="6" class="no-containers">No images found.</td></tr>';
+                }
                 return;
             }
             
             images.forEach(image => {
+                // Grid view card
                 const imageCard = document.createElement('div');
                 imageCard.className = 'image-card';
                 
@@ -1411,9 +1686,32 @@ function loadImages() {
                         </div>
                     </div>
                 `;
-                
                 imagesList.appendChild(imageCard);
+                
+                // Table view row
+                if (tableBody) {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${image.name}</td>
+                        <td>${image.tags.join(', ')}</td>
+                        <td>${image.size} MB</td>
+                        <td>${image.created}</td>
+                        <td>${isUsed ? image.used_by.join(', ') : 'None'}</td>
+                        <td>
+                            <button onclick="removeImage('${image.id}')" class="btn btn-error" ${isUsed ? 'disabled' : ''}>Remove</button>
+                        </td>
+                    `;
+                    tableBody.appendChild(row);
+                }
             });
+            
+            // Apply saved view preference
+            const savedImageView = localStorage.getItem('imageViewPreference');
+            if (savedImageView === 'table') {
+                document.getElementById('images-grid-view').classList.remove('active');
+                document.getElementById('images-table-view').classList.add('active');
+                document.getElementById('toggle-image-view').textContent = '⋮⋮';
+            }
         })
         .catch(error => {
             setLoading(false);
@@ -1554,8 +1852,8 @@ function updateStackFilterOptions(stacks) {
         }
         const currentValue = stackFilter.value || stackFilterMobile.value;
         
-        stackFilter.innerHTML = '<option value="">All Stacks</option>';
-        stackFilterMobile.innerHTML = '<option value="">All Stacks</option>';
+        stackFilter.innerHTML = '<option value="">Stacks</option>';
+        stackFilterMobile.innerHTML = '<option value="">Stacks</option>';
 
         stacks.sort().forEach(stack => {
             const option = document.createElement('option');
@@ -1659,6 +1957,7 @@ function renderContainersByStack(containers) {
         showMessage('error', 'Failed to render containers by stack');
     }
 }
+
 function findComposeFileForStack(containers) {
     if (!containers || containers.length === 0) return null;
     
@@ -1669,6 +1968,11 @@ function findComposeFileForStack(containers) {
     for (const container of containers) {
         if (container.compose_file) {
             console.log('Container has compose_file property:', container.compose_file);
+            
+            // If it already has a path with ../, use it exactly as is
+            if (container.compose_file.startsWith('../')) {
+                return container.compose_file;
+            }
             
             // If the compose_file doesn't include the stack name, add it
             if (!container.compose_file.includes('/') && stackName) {
@@ -1691,6 +1995,7 @@ function findComposeFileForStack(containers) {
     return null;
 }
 
+// Improved openComposeInEditor function that tries multiple file variants
 function openComposeInEditor(composeFile) {
     console.log('Opening compose file:', composeFile);
     
@@ -1705,111 +2010,67 @@ function openComposeInEditor(composeFile) {
     // Switch to config tab
     switchTab('config');
     
-    // Function to check if compose files are loaded and load the requested file
-    function tryLoadCompose() {
-        const composeSelect = document.getElementById('compose-files');
-        if (!composeSelect) {
-            console.error('Compose files select not found');
-            return false;
-        }
+    // For immich specifically (since we've had issues with it)
+    if (composeFile.includes('immich')) {
+        console.log('Special handling for immich compose file');
         
-        const availableOptions = Array.from(composeSelect.options)
-            .map(opt => opt.value)
-            .filter(val => val);
+        // Try both yml and yaml extensions
+        const basePathWithoutExt = composeFile.substring(0, composeFile.lastIndexOf('.'));
+        const ymlPath = basePathWithoutExt + '.yml';
+        const yamlPath = basePathWithoutExt + '.yaml';
         
-        console.log('Available options:', availableOptions);
-        
-        // If no options are available yet, we'll trigger a load
-        if (availableOptions.length === 0) {
-            console.log('No options available yet, triggering file load');
-            // Store the file we're trying to load
-            localStorage.setItem('pendingComposeFile', composeFile);
-            loadComposeFiles();
-            return false;
-        }
-        
-        // Try to find a matching option
-        let matchedOption = null;
-        
-        // 1. Try exact match
-        if (availableOptions.includes(composeFile)) {
-            matchedOption = composeFile;
-            console.log('Found exact match:', matchedOption);
-        }
-        // 2. Try to match by parts
-        else {
-            const parts = composeFile.split('/');
-            const fileName = parts[parts.length - 1];
-            const dirName = parts.length > 1 ? parts[parts.length - 2] : '';
-            
-            // Try matching by directory and filename
-            if (dirName) {
-                for (const option of availableOptions) {
-                    if (option.includes(`${dirName}/`) && option.endsWith(`/${fileName}`)) {
-                        matchedOption = option;
-                        console.log('Found by directory and filename match:', matchedOption);
-                        break;
-                    }
-                }
-            }
-            
-            // If still not found, try just by filename
-            if (!matchedOption) {
-                for (const option of availableOptions) {
-                    if (option.endsWith(`/${fileName}`)) {
-                        matchedOption = option;
-                        console.log('Found by filename match:', matchedOption);
-                        break;
-                    }
-                }
-            }
-        }
-        
-        if (matchedOption) {
-            console.log('Using matched option:', matchedOption);
-            composeSelect.value = matchedOption;
-            currentComposeFile = matchedOption;
-            loadCompose();
-            return true;
-        }
-        
-        return false;
-    }
-    
-    // Try to load immediately
-    if (!tryLoadCompose()) {
-        // If not successful, scan for files and try again
-        console.log('First attempt failed, scanning for compose files...');
-        
-        // Show a loading message
-        showMessage('info', 'Searching for compose files...');
-        
-        // Store the file we're trying to load
+        // Store path for later use
         localStorage.setItem('pendingComposeFile', composeFile);
         
-        // Scan for compose files
-        scanComposeFiles();
+        // Try all potential paths directly
+        directLoadCompose(composeFile)
+            .catch(() => directLoadCompose(ymlPath))
+            .catch(() => directLoadCompose(yamlPath))
+            .catch(() => {
+                // If all direct loads fail, fall back to standard loading
+                console.log('All direct loads failed, falling back to dropdown selection');
+                loadComposeFiles();
+            });
+    } else {
+        // Standard path for other stacks
+        localStorage.setItem('pendingComposeFile', composeFile);
+        loadComposeFiles();
     }
 }
-// New function to directly load a compose file without relying on the dropdown
-function directLoadCompose(projectName, filename) {
-    const composePath = projectName ? `${projectName}/${filename}` : filename;
-    console.log(`Attempting direct load of ${composePath}`);
+
+// Try each variant in sequence until one works
+function tryNextVariant(variants, index) {
+    if (index >= variants.length) {
+        console.log('All variants failed, scanning for compose files...');
+        showMessage('info', 'Searching for compose files...');
+        scanComposeFiles();
+        return;
+    }
     
-    fetch(`/api/compose?file=${encodeURIComponent(composePath)}`)
+    const currentVariant = variants[index];
+    console.log(`Trying variant ${index + 1}/${variants.length}: ${currentVariant}`);
+    
+    fetch(`/api/compose?file=${encodeURIComponent(currentVariant)}`)
         .then(response => response.json())
         .then(result => {
             if (result.status === 'success') {
                 document.getElementById('compose-editor').value = result.content;
                 currentComposeFile = result.file;
+                
                 // Update dropdown if possible
                 const composeSelect = document.getElementById('compose-files');
                 if (composeSelect) {
-                    const options = Array.from(composeSelect.options).map(opt => opt.value);
-                    if (options.includes(result.file)) {
-                        composeSelect.value = result.file;
-                    } else {
-                        // Add option if not present
+                    // Find or add the option
+                    let found = false;
+                    for (let i = 0; i < composeSelect.options.length; i++) {
+                        if (composeSelect.options[i].value === result.file) {
+                            composeSelect.selectedIndex = i;
+                            found = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!found) {
                         const newOption = document.createElement('option');
                         newOption.value = result.file;
                         newOption.textContent = result.file;
@@ -1817,22 +2078,59 @@ function directLoadCompose(projectName, filename) {
                         composeSelect.value = result.file;
                     }
                 }
+                
                 showMessage('success', `Loaded compose file: ${result.file}`);
             } else {
-                console.error('Failed direct load:', result.message);
-                showMessage('error', `Failed to load compose file: ${result.message}`);
-                
-                // Fall back to one last try - attempt to trigger a compose file scan
-                scanComposeFiles();
-                setTimeout(() => {
-                    showMessage('info', 'Scanned for compose files. Please try again.');
-                }, 1000);
+                // Try the next variant
+                tryNextVariant(variants, index + 1);
             }
         })
         .catch(error => {
-            console.error('Direct load failed:', error);
-            showMessage('error', `Failed to load compose file: ${error.message}`);
+            console.error(`Error loading variant ${currentVariant}:`, error);
+            tryNextVariant(variants, index + 1);
         });
+}
+// New function to directly load a compose file without relying on the dropdown
+// Modify directLoadCompose to return a Promise for better chaining
+function directLoadCompose(composePath) {
+    console.log(`Attempting direct load of ${composePath}`);
+    
+    return new Promise((resolve, reject) => {
+        // If the path starts with ../, extract the real path
+        const realPath = composePath.startsWith('../') ? composePath.substring(3) : composePath;
+        
+        fetch(`/api/compose?file=${encodeURIComponent(realPath)}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.status === 'success') {
+                    document.getElementById('compose-editor').value = result.content;
+                    currentComposeFile = composePath; // Use the original path for consistency
+                    
+                    // Add to dropdown if not present
+                    const select = document.getElementById('compose-files');
+                    if (select) {
+                        const options = Array.from(select.options).map(opt => opt.value);
+                        if (!options.includes(composePath)) {
+                            const newOption = document.createElement('option');
+                            newOption.value = composePath;
+                            newOption.textContent = composePath;
+                            select.appendChild(newOption);
+                        }
+                        select.value = composePath;
+                    }
+                    
+                    showMessage('success', `Loaded compose file: ${composePath}`);
+                    resolve(result);
+                } else {
+                    console.log(`Direct load failed for ${composePath}: ${result.message}`);
+                    reject(new Error(result.message || 'Failed to load compose file'));
+                }
+            })
+            .catch(error => {
+                console.error(`Error loading ${composePath}:`, error);
+                reject(error);
+            });
+    });
 }
 
 // Initialize with a more robust approach
@@ -1941,4 +2239,8 @@ document.addEventListener('DOMContentLoaded', () => {
     addEventListenerIfExists('refresh-btn', 'click', refreshContainers);
     
     console.log('All event listeners initialized');
+    setTimeout(() => {
+        loadViewPreference();
+    }, 100);
+
 });

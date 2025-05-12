@@ -646,10 +646,38 @@ def get_compose_files_endpoint():
         logger.error(f"Failed to get compose files: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': f'Failed to get compose files: {str(e)}', 'files': []})
 
+# In app.py, update the scan_compose_files_endpoint
 @app.route('/api/compose/scan')
 def scan_compose_files_endpoint():
     try:
+        # Original code for scanning
         files = scan_all_compose_files(COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        
+        # Add this new section to also scan for relative paths with ../
+        # This will find compose files in sibling directories of your COMPOSE_DIR
+        parent_dir = os.path.dirname(COMPOSE_DIR)
+        if os.path.exists(parent_dir):
+            logger.info(f"Scanning parent directory: {parent_dir}")
+            for item in os.listdir(parent_dir):
+                item_path = os.path.join(parent_dir, item)
+                if os.path.isdir(item_path) and item_path != COMPOSE_DIR:  # Skip the compose dir itself
+                    # This is a sibling directory to compose_dir (like immich, media-server, etc.)
+                    sibling_dir = item
+                    sibling_path = os.path.join(parent_dir, sibling_dir)
+                    logger.debug(f"Checking sibling directory: {sibling_dir}")
+                    
+                    # Look for compose files in this sibling directory
+                    for root, dirs, file_list in os.walk(sibling_path):
+                        for file in file_list:
+                            if file.lower() in ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']:
+                                # Create a relative path with ../
+                                rel_from_root = os.path.relpath(os.path.join(root, file), parent_dir)
+                                rel_path = f"../{rel_from_root}"
+                                if rel_path not in files:
+                                    files.append(rel_path)
+                                    logger.info(f"Found relative compose file: {rel_path}")
+        
+        # Return the files as before
         logger.debug(f"Returning scanned compose files: {files}")
         return jsonify({'status': 'success', 'files': files})
     except Exception as e:
