@@ -4,36 +4,46 @@ function toggleView() {
     const tableView = document.getElementById('table-view');
     const toggleButton = document.getElementById('toggle-view');
     const filterControls = document.querySelector('.filter-controls');
-
+    const batchActions = document.getElementById('batch-actions');
+    const isBatchMode = document.getElementById('containers-list').classList.contains('batch-mode');
+    
     if (gridView && gridView.classList.contains('active')) {
         // Switch to table view
         gridView.classList.remove('active');
         tableView.classList.add('active');
         saveViewPreference('table');
-        
+       
         // Move controls to table
         moveControlsToTable();
-        
+       
         if (toggleButton) {
             toggleButton.textContent = '≡';
         }
         
+        // ALWAYS hide grid batch actions when switching to table
+        batchActions.classList.remove('visible');
+       
         refreshContainers();
     } else if (tableView) {
         // Switch to grid view
         tableView.classList.remove('active');
         gridView.classList.add('active');
         saveViewPreference('grid');
-        
+       
         // Show original filter controls
         if (filterControls) {
-            filterControls.style.display = ''; // Show the filter controls again
+            filterControls.style.display = '';
         }
-        
+       
         if (toggleButton) {
             toggleButton.textContent = '⋮⋮';
         }
         
+        // Show grid batch actions only if in batch mode
+        if (batchActions && isBatchMode) {
+            batchActions.classList.add('visible');
+        }
+       
         refreshContainers();
     }
 }
@@ -201,7 +211,10 @@ function renderSingleContainerAsTableRow(container, tableBody) {
         <td>${container.memory_usage} MB</td>
         <td>
             <div class="actions">
-                <button class="btn btn-primary" onclick="showContainerPopup('${container.id}', '${container.name}')">...</button>
+                <button class="btn btn-success" onclick="containerAction('${container.id}', 'start')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
+                <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
+                <button class="btn btn-primary" onclick="containerAction('${container.id}', 'restart')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
+                <button class="btn btn-primary" onclick="showContainerPopup('${container.id}', '${container.name}')">More</button>
             </div>
         </td>
     `;

@@ -400,7 +400,11 @@ function renderSingleContainer(container, parentElement) {
             <div class="container-stats">
                 CPU: ${container.cpu_percent}% | Memory: ${container.memory_usage} MB
             </div>
-            
+            <div class="actions">
+                <button class="btn btn-success" onclick="containerAction('${container.id}', 'start')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
+                <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
+                <button class="btn btn-primary" onclick="containerAction('${container.id}', 'restart')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
+            </div>
         </div>
     `;
 
@@ -883,15 +887,8 @@ async function repullContainer(id) {
     }
 }
 
+// Updated toggleBatchMode function
 function toggleBatchMode() {
-    // Show warning when enabling batch mode
-    if (!document.getElementById('containers-list').classList.contains('batch-mode')) {
-        const warningMessage = "Batch actions use Docker commands, not Compose, and may disrupt Compose setups (e.g., networks, dependencies). Continue?";
-        if (!confirm(warningMessage)) {
-            return; // Exit if user cancels
-        }
-    }
-
     const containersList = document.getElementById('containers-list');
     const tableView = document.getElementById('table-view');
     const batchActions = document.getElementById('batch-actions');

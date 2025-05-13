@@ -489,7 +489,7 @@ def repull_container(id):
             detach=True,
             ports=container.attrs.get('HostConfig', {}).get('PortBindings', {}),
             volumes=container.attrs.get('HostConfig', {}).get('Binds', []),
-            environment=[f"{k}={v}" for k, v in container.attrs.get('Config', {}).get('Env', {}).items()],
+            environment=container.attrs.get('Config', {}).get('Env', []),
             restart_policy=container.attrs.get('HostConfig', {}).get('RestartPolicy', {}),
             network_mode=container.attrs.get('HostConfig', {}).get('NetworkMode', 'default')
         )

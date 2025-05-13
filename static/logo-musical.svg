@@ -1,0 +1,58 @@
+<svg width="300" height="100" viewBox="0 0 300 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="staffGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="whaleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e40af;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Large musical staff that flows -->
+  <path d="M20,20 Q100,20 150,25 L280,25" stroke="url(#staffGradient)" stroke-width="2" fill="none"/>
+  <path d="M20,30 Q100,30 150,33 L280,33" stroke="url(#staffGradient)" stroke-width="2" fill="none"/>
+  <path d="M20,40 Q100,40 150,40 L280,40" stroke="url(#staffGradient)" stroke-width="2" fill="none"/>
+  <path d="M20,50 Q100,50 150,47 L280,47" stroke="url(#staffGradient)" stroke-width="2" fill="none"/>
+  <path d="M20,60 Q100,60 150,55 L280,55" stroke="url(#staffGradient)" stroke-width="2" fill="none"/>
+  
+  <!-- Large Docker whale as treble clef -->
+  <g transform="translate(40, 40) scale(2)">
+    <!-- Whale body -->
+    <path d="M0,-15 C-3,-15 -5,-13 -5,-10 L-5,5 C-5,10 -2,12 2,12 C6,12 8,8 8,5 C8,2 6,0 3,0 C1,0 0,1 0,2 L0,-10 C0,-12 2,-15 5,-15 C7,-15 8,-13 8,-11 C8,-9 7,-8 5,-8 C3,-8 2,-9 2,-11"
+          fill="url(#whaleGradient)" stroke="none"/>
+    <!-- Whale tail -->
+    <path d="M5,-15 C5,-15 8,-18 12,-18 C14,-18 15,-17 15,-15 C15,-14 14,-14 13,-14 C11,-14 10,-15 8,-15"
+          fill="url(#whaleGradient)" stroke="none"/>
+    <!-- Water spouts -->
+    <circle cx="0" cy="-18" r="2" fill="#3b82f6" opacity="0.7"/>
+    <circle cx="-3" cy="-21" r="1.5" fill="#3b82f6" opacity="0.5"/>
+    <circle cx="3" cy="-20" r="1.2" fill="#3b82f6" opacity="0.6"/>
+  </g>
+  
+  <!-- Larger container "notes" floating -->
+  <rect x="100" y="35" width="12" height="12" rx="2" fill="#34d399" opacity="0.9" transform="rotate(10 106 41)"/>
+  <rect x="130" y="28" width="12" height="12" rx="2" fill="#f87171" opacity="0.9" transform="rotate(-5 136 34)"/>
+  <rect x="160" y="43" width="12" height="12" rx="2" fill="#fbbf24" opacity="0.9" transform="rotate(15 166 49)"/>
+  <rect x="190" y="25" width="12" height="12" rx="2" fill="#82aaff" opacity="0.9" transform="rotate(-10 196 31)"/>
+  <rect x="220" y="38" width="12" height="12" rx="2" fill="#ec4899" opacity="0.9" transform="rotate(8 226 44)"/>
+  
+  <!-- Flowing connection lines -->
+  <path d="M80,40 Q150,35 220,40" stroke="#6366f1" stroke-width="1" fill="none" opacity="0.3"/>
+  
+  <!-- Large text with shadow -->
+<defs>
+  <filter id="textGlow">
+    <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+    <feMerge>
+      <feMergeNode in="coloredBlur"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+</defs>
+
+<text x="150" y="90" font-family="Inter, sans-serif" font-size="28" font-weight="400" 
+      text-anchor="middle" fill="var(--text-primary)" letter-spacing="3" 
+      filter="url(#textGlow)" style="text-shadow: 0 0 10px rgba(255,255,255,0.3);">COMPOSR</text>
+</svg>

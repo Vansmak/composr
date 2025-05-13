@@ -94,16 +94,60 @@ header {
 
 /* === Logo === */
 .logo {
-    max-height: 40px;
+    max-height: 60px;
+    width: auto;
+    max-width: 200px;
     cursor: pointer;
-    padding: 4px;
-    border-radius: 8px;
+    padding: 4px 8px;
+    border-radius: 12px;
     background: var(--bg-secondary);
     border: 2px solid var(--border-color);
-    transition: background-color 0.2s ease;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
+/* Desktop */
+@media (min-width: 769px) {
+    .logo {
+        max-height: 60px;
+        max-width: 200px;
+    }
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+    .logo {
+        max-height: 40px;
+        max-width: 120px;
+        padding: 2px 4px;
+    }
+    
+    /* Hide text on very small screens */
+    @media (max-width: 480px) {
+        .logo svg text {
+            display: none;
+        }
+    }
+}
+
+/* Hover effects */
 .logo:hover {
+    background: var(--bg-card);
+    border-color: var(--accent-primary);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.logo:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Menu open state */
+.filter-menu.active ~ .logo,
+.logo.menu-open {
     background: var(--accent-primary);
     border-color: var(--accent-primary);
 }
@@ -959,6 +1003,7 @@ header {
     margin-bottom: 0.5rem;
 }
 
+
 /* === Mobile === */
 @media (max-width: 768px) {
     .filter-controls .filter-select {
@@ -1118,6 +1163,41 @@ header {
 #table-view th:nth-child(8) {
     min-width: 100px;
     white-space: nowrap;
+}
+
+/* Make grid view batch actions sticky */
+.batch-actions.visible {
+    position: sticky;
+    top: 60px; /* Adjust based on your header height */
+    z-index: 50;
+}
+
+/* Make table controls row sticky (where batch buttons are in table view) */
+#table-controls-row {
+    position: sticky;
+    top: 60px; /* Same as grid view */
+    z-index: 50;
+    background: var(--bg-primary);
+}
+/* IMPORTANT: Never show grid batch actions in table view */
+#table-view.active ~ #batch-actions.visible {
+    display: none !important;
+}
+/* FORCE hide grid batch actions when table view is active */
+body.table-view-active #batch-actions,
+#containers-tab:has(#table-view.active) #batch-actions,
+#grid-view:not(.active) ~ #batch-actions.visible {
+    display: none !important;
+}
+
+/* Additional selector to ensure it's hidden */
+#table-view.active ~ * #batch-actions,
+#table-view.active + #batch-actions {
+    display: none !important;
+}
+/* Hide grid batch actions when in table view */
+#table-view.active ~ #batch-actions {
+    display: none !important;
 }
 /* Desktop: Hide regular filters in menu, only show theme selector */
 @media (min-width: 769px) {
