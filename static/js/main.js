@@ -14,6 +14,7 @@ let currentCaddyFile = '';
 let refreshTimer = null;
 
 // Theme handling
+// 10. Update setTheme function
 function setTheme(theme) {
     console.log(`Setting theme to: ${theme}`);
     document.documentElement.setAttribute('data-theme', theme);
@@ -29,6 +30,9 @@ function setTheme(theme) {
     document.body.style.display = 'none';
     document.body.offsetHeight; // This triggers a reflow
     document.body.style.display = '';
+    
+    // Emit theme change event for Monaco editors
+    window.dispatchEvent(new Event('themeChanged'));
     
     console.log(`Theme set to: ${theme}`);
 }
@@ -107,6 +111,7 @@ function switchTab(tabName) {
     }
 }
 
+// 9. Update switchSubTab function
 function switchSubTab(subtabName) {
     document.querySelectorAll('.subtab').forEach(tab => tab.classList.remove('active'));
     document.querySelectorAll('.subtab-content').forEach(content => content.classList.remove('active'));
@@ -115,10 +120,22 @@ function switchSubTab(subtabName) {
     
     if (subtabName === 'compose') {
         loadComposeFiles();
+        // Re-initialize Monaco for compose editor if needed
+        if (window.initializeMonacoEditor && !window.monacoEditors['compose-editor']) {
+            window.initializeMonacoEditor('compose-editor', 'yaml');
+        }
     } else if (subtabName === 'env') {
         scanEnvFiles();
+        // Re-initialize Monaco for env editor if needed
+        if (window.initializeMonacoEditor && !window.monacoEditors['env-editor']) {
+            window.initializeMonacoEditor('env-editor', 'ini');
+        }
     } else if (subtabName === 'caddy') {
         loadCaddyFile();
+        // Re-initialize Monaco for caddy editor if needed
+        if (window.initializeMonacoEditor && !window.monacoEditors['caddy-editor']) {
+            window.initializeMonacoEditor('caddy-editor', 'text');
+        }
     }
 }
 
@@ -1282,6 +1299,7 @@ function loadSelectedFile() {
     }
 }
 
+// 1. Update loadCompose function - COMPLETE VERSION
 async function loadCompose() {
     if (!currentComposeFile) {
         showMessage('error', 'No compose file selected');
@@ -1302,7 +1320,12 @@ async function loadCompose() {
         
         const result = await response.json();
         if (result.content) {
-            document.getElementById('compose-editor').value = result.content;
+            // Use Monaco editor if available
+            if (window.updateMonacoContent) {
+                window.updateMonacoContent('compose-editor', result.content);
+            } else {
+                document.getElementById('compose-editor').value = result.content;
+            }
             currentComposeFile = result.file;
             document.getElementById('compose-files').value = currentComposeFile;
             showMessage('success', `Loaded compose file: ${currentComposeFile}`);
@@ -1323,7 +1346,12 @@ async function loadCompose() {
                     const altResult = await altResponse.json();
                     
                     if (altResult.status === 'success' && altResult.content) {
-                        document.getElementById('compose-editor').value = altResult.content;
+                        // Use Monaco editor if available
+                        if (window.updateMonacoContent) {
+                            window.updateMonacoContent('compose-editor', altResult.content);
+                        } else {
+                            document.getElementById('compose-editor').value = altResult.content;
+                        }
                         currentComposeFile = altResult.file;
                         document.getElementById('compose-files').value = currentComposeFile;
                         showMessage('success', `Loaded compose file: ${currentComposeFile}`);
@@ -1356,7 +1384,12 @@ async function loadCompose() {
                     const directResult = await directResponse.json();
                     
                     if (directResult.status === 'success' && directResult.content) {
-                        document.getElementById('compose-editor').value = directResult.content;
+                        // Use Monaco editor if available
+                        if (window.updateMonacoContent) {
+                            window.updateMonacoContent('compose-editor', directResult.content);
+                        } else {
+                            document.getElementById('compose-editor').value = directResult.content;
+                        }
                         showMessage('success', `Loaded ${pathToTry} directly`);
                     }
                 } catch (directError) {
@@ -1369,6 +1402,7 @@ async function loadCompose() {
     }
 }
 
+// 2. Update saveCompose function
 async function saveCompose() {
     if (!currentComposeFile) {
         showMessage('error', 'Please select a compose file');
@@ -1376,12 +1410,18 @@ async function saveCompose() {
     }
     try {
         setLoading(true, 'Saving compose file...');
-        const content = document.getElementById('compose-editor').value;
+        
+        // Get content from Monaco editor if available
+        const content = window.getMonacoContent ? 
+            window.getMonacoContent('compose-editor') : 
+            document.getElementById('compose-editor').value;
+            
         const response = await fetch('/api/compose', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: content, file: currentComposeFile })
         });
+        
         const result = await response.json();
         if (result.status === 'success') {
             showMessage('success', 'Compose file saved successfully');
@@ -1529,6 +1569,7 @@ function scanEnvFiles() {
         });
 }
 
+// 3. Update loadEnvFile function
 function loadEnvFile() {
     const select = document.getElementById('env-files');
     currentEnvFile = select.value;
@@ -1542,28 +1583,49 @@ function loadEnvFile() {
         .then(data => {
             setLoading(false);
             if (data.status === 'success') {
-                document.getElementById('env-editor').value = data.content;
+                // Use Monaco editor if available
+                if (window.updateMonacoContent) {
+                    window.updateMonacoContent('env-editor', data.content);
+                } else {
+                    document.getElementById('env-editor').value = data.content;
+                }
                 showMessage('success', `Loaded .env file: ${currentEnvFile}`);
             } else {
-                document.getElementById('env-editor').value = `# Failed to load ${currentEnvFile}\n# Error: ${data.message}\n\n# You can create a new .env file here`;
+                const errorContent = `# Failed to load ${currentEnvFile}\n# Error: ${data.message}\n\n# You can create a new .env file here`;
+                if (window.updateMonacoContent) {
+                    window.updateMonacoContent('env-editor', errorContent);
+                } else {
+                    document.getElementById('env-editor').value = errorContent;
+                }
                 showMessage('error', data.message);
             }
         })
         .catch(error => {
             setLoading(false);
             console.error('Failed to load .env file:', error);
-            document.getElementById('env-editor').value = `# Failed to load ${currentEnvFile}\n# Error: ${error}\n\n# You can create a new .env file here`;
+            const errorContent = `# Failed to load ${currentEnvFile}\n# Error: ${error}\n\n# You can create a new .env file here`;
+            if (window.updateMonacoContent) {
+                window.updateMonacoContent('env-editor', errorContent);
+            } else {
+                document.getElementById('env-editor').value = errorContent;
+            }
             showMessage('error', 'Failed to load .env file');
         });
 }
 
+// 4. Update saveEnvFile function
 function saveEnvFile() {
     if (!currentEnvFile) {
         showMessage('error', 'No .env file selected');
         return;
     }
     setLoading(true, 'Saving .env file...');
-    const content = document.getElementById('env-editor').value;
+    
+    // Get content from Monaco editor if available
+    const content = window.getMonacoContent ? 
+        window.getMonacoContent('env-editor') : 
+        document.getElementById('env-editor').value;
+        
     fetch('/api/env/file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1585,7 +1647,7 @@ function saveEnvFile() {
         });
 }
 
-// Caddy file functions
+// 5. Update loadCaddyFile function
 function loadCaddyFile() {
     setLoading(true, 'Loading Caddyfile...');
     fetch('/api/caddy/file')
@@ -1593,7 +1655,12 @@ function loadCaddyFile() {
         .then(data => {
             setLoading(false);
             if (data.status === 'success') {
-                document.getElementById('caddy-editor').value = data.content;
+                // Use Monaco editor if available
+                if (window.updateMonacoContent) {
+                    window.updateMonacoContent('caddy-editor', data.content);
+                } else {
+                    document.getElementById('caddy-editor').value = data.content;
+                }
                 currentCaddyFile = data.file;
                 showMessage('success', `Loaded Caddyfile: ${currentCaddyFile}`);
             } else {
@@ -1607,9 +1674,15 @@ function loadCaddyFile() {
         });
 }
 
+// 6. Update saveCaddyFile function
 function saveCaddyFile() {
     setLoading(true, 'Saving Caddyfile...');
-    const content = document.getElementById('caddy-editor').value;
+    
+    // Get content from Monaco editor if available
+    const content = window.getMonacoContent ? 
+        window.getMonacoContent('caddy-editor') : 
+        document.getElementById('caddy-editor').value;
+        
     fetch('/api/caddy/file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1631,15 +1704,21 @@ function saveCaddyFile() {
         });
 }
 
+// 7. Update saveCaddyFileAndReload function
 function saveCaddyFileAndReload() {
     setLoading(true, 'Saving and reloading Caddyfile...');
-    const content = document.getElementById('caddy-editor').value;
+    
+    // Get content from Monaco editor if available
+    const content = window.getMonacoContent ? 
+        window.getMonacoContent('caddy-editor') : 
+        document.getElementById('caddy-editor').value;
+        
     fetch('/api/caddy/file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
             content: content,
-            reload: true  // Make sure this parameter is included
+            reload: true
         })
     })
     .then(response => response.json())
@@ -2364,8 +2443,7 @@ function tryNextVariant(variants, index) {
             tryNextVariant(variants, index + 1);
         });
 }
-// New function to directly load a compose file without relying on the dropdown
-// Modify directLoadCompose to return a Promise for better chaining
+// 8. Update directLoadCompose function - COMPLETE VERSION
 function directLoadCompose(composePath) {
     console.log(`Attempting direct load of ${composePath}`);
     
@@ -2377,7 +2455,12 @@ function directLoadCompose(composePath) {
             .then(response => response.json())
             .then(result => {
                 if (result.status === 'success') {
-                    document.getElementById('compose-editor').value = result.content;
+                    // Use Monaco editor if available
+                    if (window.updateMonacoContent) {
+                        window.updateMonacoContent('compose-editor', result.content);
+                    } else {
+                        document.getElementById('compose-editor').value = result.content;
+                    }
                     currentComposeFile = composePath; // Use the original path for consistency
                     
                     // Add to dropdown if not present

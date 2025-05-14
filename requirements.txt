@@ -1,4 +1,5 @@
-flask
+Flask
 docker
-pytz
 PyYAML
+pytz
+gunicorn

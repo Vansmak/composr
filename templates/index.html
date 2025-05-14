@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Composr</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/editor.css">
     
+    <!-- Monaco Editor Loader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -104,9 +107,7 @@
             <button id="refresh-btn" class="refresh-btn">Refresh</button>
             
         </div>
-        <!-- Update the batch actions div in index.html -->
-        <!-- Simplified batch actions -->
-        <!-- Update batch actions in index.html -->
+        <!-- Batch Actions -->
         <div id="batch-actions" class="batch-actions">
             <div class="batch-actions-buttons">
                 <button class="btn btn-success" onclick="batchAction('start')">Start</button>
@@ -226,7 +227,10 @@
                 </table>
             </div>
         </div>
+    </div>
     
+    <!-- Scripts -->
+    <script src="/static/js/editor.js"></script>
     <script src="/static/js/main.js"></script>
     <script src="/static/js/table-view.js"></script>
 </body>

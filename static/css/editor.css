@@ -1,0 +1,84 @@
+/* Monaco Editor Specific Styles */
+.monaco-editor-container {
+    width: 100%;
+    height: 600px;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.editor-container .monaco-editor-container {
+    margin-top: 0.5rem;
+}
+
+/* Hide original textareas when Monaco is active */
+.code-editor.monaco-initialized {
+    display: none;
+}
+
+/* Theme-specific Monaco adjustments */
+[data-theme="refined-dark"] .monaco-editor-container,
+[data-theme="minimal-dark"] .monaco-editor-container,
+[data-theme="dracula"] .monaco-editor-container,
+[data-theme="nord"] .monaco-editor-container,
+[data-theme="solarized-dark"] .monaco-editor-container,
+[data-theme="github-dark"] .monaco-editor-container,
+[data-theme="atom-one-dark"] .monaco-editor-container,
+[data-theme="monokai"] .monaco-editor-container {
+    background-color: var(--card-background);
+}
+
+/* Responsive Monaco editor */
+@media (max-width: 768px) {
+    .monaco-editor-container {
+        height: 400px;
+    }
+}
+
+@media (max-width: 480px) {
+    .monaco-editor-container {
+        height: 300px;
+    }
+}
+
+/* Loading state for editors */
+.monaco-editor-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary);
+    font-size: 1.2rem;
+}
+
+.monaco-editor-loading::after {
+    content: "Loading editor...";
+}
+
+/* Error state for editors */
+.monaco-editor-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--accent-error);
+    font-size: 1.2rem;
+}
+
+/* Editor action buttons styling */
+.editor-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.editor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    background-color: var(--card-header-bg);
+    border-radius: 0.5rem 0.5rem 0 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Add to existing styles.css or create separate editor-styles.css */

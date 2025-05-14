@@ -63,7 +63,7 @@ RUN apk update && apk add busybox-extras
 ```yaml
 services:
   composr:
-    image: vansmak/composr:latest or  vansmak/composr:v1.1.0
+    image: vansmak/composr:latest or  vansmak/composr:x.x.x
     container_name: composr
     ports:
       - "5003:5003"

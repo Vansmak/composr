@@ -1,21 +1,31 @@
+# Development/test files
+*.pyc
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+*.swp
+*.swo
+*~
 
-# IDE
-.vscode/
-.idea/
+# Build artifacts
+build/
+dist/
+*.egg-info/
 
-# Logs
-*.log
+# Version control
+.git/
+.gitignore
 
-# Environment
-.env
+# Documentation
+docs/
+*.md
 
-# OS
-.DS_Store
+# Monaco editor (if you had local files)
+monaco/
+static/monaco/
+
+# Container metadata (if you don't want it in image)
+container_metadata.json
+composr.log
+metadata/

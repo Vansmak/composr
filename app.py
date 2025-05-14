@@ -15,16 +15,13 @@ from functions import (
     extract_env_from_compose, calculate_uptime, find_caddy_container, get_compose_files_cached
 )
 
+# Add after imports
+__version__ = "1.4.0"
+
 # Initialize Flask app
 app = Flask(__name__)
 
-# Setup logging with rotation
-log_handler = RotatingFileHandler('/app/composr.log', maxBytes=1024*1024, backupCount=5)
-log_handler.setLevel(logging.DEBUG)
-logger = logging.getLogger(__name__)
-logger.addHandler(log_handler)
-logger.setLevel(logging.INFO) #change to debug to troubleshoot
-# Configuration
+# Configuration - MOVED BEFORE LOGGING
 COMPOSE_DIR = os.getenv('COMPOSE_DIR', '/app/projects')
 EXTRA_COMPOSE_DIRS = os.getenv('EXTRA_COMPOSE_DIRS', '').split(':')
 METADATA_DIR = os.environ.get('METADATA_DIR', '/app')
@@ -34,6 +31,20 @@ CADDY_CONFIG_FILE = os.getenv('CADDY_CONFIG_FILE', 'Caddyfile')
 
 # Ensure metadata directory exists
 os.makedirs(os.path.dirname(CONTAINER_METADATA_FILE), exist_ok=True)
+
+# Setup logging with rotation - NOW USES METADATA_DIR
+log_file = os.path.join(METADATA_DIR, 'composr.log')
+log_handler = RotatingFileHandler(log_file, maxBytes=1024*1024, backupCount=5)
+
+# Set log level based on environment variable
+log_level = logging.DEBUG if os.getenv('DEBUG', 'false').lower() == 'true' else logging.INFO
+log_handler.setLevel(log_level)
+logger = logging.getLogger(__name__)
+logger.addHandler(log_handler)
+logger.setLevel(log_level)
+
+# Log the startup
+logger.info(f"Composr starting up - Log file: {log_file}, Debug mode: {log_level == logging.DEBUG}")
 
 # Caching variables
 _system_stats_cache = {}
@@ -1459,4 +1470,4 @@ def batch_action(action):
         return jsonify({'status': 'error', 'message': str(e)})
     
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5003, debug=True)
+    app.run(host='0.0.0.0', port=5003, debug=False)

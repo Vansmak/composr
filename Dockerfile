@@ -27,5 +27,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY . .
 
-# Command to run the application
-CMD ["python", "app.py"]
+# Command to run the application with Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:5003", "--workers", "4", "--threads", "2", "--timeout", "120", "app:app"]
