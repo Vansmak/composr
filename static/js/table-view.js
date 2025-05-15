@@ -71,11 +71,65 @@ function renderContainersAsTable(containers) {
     } else if (group === 'tag') {
         renderContainersByTagAsTable(containers);
         return;
+    } else if (group === 'host') {
+        renderContainersByHostAsTable(containers);
+        return;
+
     }
 
     // Render without grouping
     containers.forEach(container => {
         renderSingleContainerAsTableRow(container, tableBody);
+    });
+}
+// ADD THIS NEW FUNCTION
+function renderContainersByHostAsTable(containers) {
+    const tableBody = document.getElementById('table-body');
+    let hostGroups = {};
+    
+    // Group containers by host
+    containers.forEach(container => {
+        const host = container.host || 'local';
+        if (!hostGroups[host]) {
+            hostGroups[host] = [];
+        }
+        hostGroups[host].push(container);
+    });
+    
+    // Render each host group
+    Object.keys(hostGroups).sort().forEach(host => {
+        const hostContainers = hostGroups[host];
+        const stats = {
+            total: hostContainers.length,
+            running: hostContainers.filter(c => c.status === 'running').length,
+            cpu: hostContainers.reduce((sum, c) => sum + (parseFloat(c.cpu_percent) || 0), 0).toFixed(1),
+            memory: Math.round(hostContainers.reduce((sum, c) => sum + (parseFloat(c.memory_usage) || 0), 0))
+        };
+        
+        // Create host header row
+        const headerRow = document.createElement('tr');
+        headerRow.className = 'stack-header-row';
+        headerRow.innerHTML = `
+            <td colspan="10">  <!-- Note: colspan is 10 now with host column -->
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; font-size: 1.1rem;">${host}</h3>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div class="stack-stats" style="display: flex; gap: 1rem;">
+                            <span title="Container count">${stats.running}/${stats.total} running</span>
+                            <span title="Total CPU usage">CPU: ${stats.cpu}%</span>
+                            <span title="Total memory usage">Mem: ${stats.memory} MB</span>
+                        </div>
+                    </div>
+                </div>
+            </td>
+        `;
+        tableBody.appendChild(headerRow);
+        
+        // Sort and render containers for this host
+        hostContainers.sort((a, b) => a.name.localeCompare(b.name));
+        hostContainers.forEach(container => {
+            renderSingleContainerAsTableRow(container, tableBody);
+        });
     });
 }
 function renderContainersByStackAsTable(containers) {
@@ -117,7 +171,7 @@ function renderContainersByStackAsTable(containers) {
         const headerRow = document.createElement('tr');
         headerRow.className = 'stack-header-row';
         headerRow.innerHTML = `
-            <td colspan="9">
+            <td colspan="10">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <h3 style="margin: 0; font-size: 1.1rem;" onclick="showStackDetailsModal('${stackName}', '${composeFile || ''}')">${stackName}</h3>
                     <div style="display: flex; align-items: center; gap: 1rem;">
@@ -165,7 +219,7 @@ function renderContainersByTagAsTable(containers) {
         const headerRow = document.createElement('tr');
         headerRow.className = 'stack-header-row';
         headerRow.innerHTML = `
-            <td colspan="9">
+            <td colspan="10">
                 <h3 style="margin: 0; font-size: 1.1rem;">${tag}</h3>
             </td>
         `;
@@ -202,6 +256,11 @@ function renderSingleContainerAsTableRow(container, tableBody) {
         <td>${extractStackName(container)}</td>
         <td>${tagsHtml}</td>
         <td>
+            <span class="host-badge ${container.host === 'local' ? 'host-local' : 'host-remote'}">
+                ${container.host || 'local'}
+            </span>
+        </td>
+        <td>
             <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
         </td>
         <td>
@@ -228,7 +287,7 @@ function renderSingleContainerAsTableRow(container, tableBody) {
 
     tableBody.appendChild(row);
 }
-// Update moveControlsToTable function
+// Updated moveControlsToTable function with improved layout
 function moveControlsToTable() {
     const controlsRow = document.getElementById('table-controls-row');
     const filterControls = document.querySelector('.filter-controls');
@@ -241,37 +300,202 @@ function moveControlsToTable() {
     // Clear any existing controls in the table
     controlsRow.innerHTML = '';
     
-    // Create cells for each control
-    const cells = [
-        // Checkbox column (batch mode toggle)
-        createCell(document.getElementById('toggle-batch-mode')),
+    // Add batch toggle in the first cell
+    const batchCell = document.createElement('td');
+    const batchToggle = document.getElementById('toggle-batch-mode');
+    if (batchToggle) {
+        const clone = batchToggle.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.classList.add('table-batch-toggle');
+        clone.onclick = toggleBatchMode;
+        batchCell.appendChild(clone);
+    }
+    controlsRow.appendChild(batchCell);
+    
+    // Add search input in the second cell
+    const searchCell = document.createElement('td');
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+        const clone = searchInput.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.addEventListener('input', () => {
+            searchInput.value = clone.value;
+            searchInput.dispatchEvent(new Event('input'));
+        });
         
-        // Name column (search input)
-        createCell(document.getElementById('search-input')),
+        searchInput.addEventListener('input', () => {
+            clone.value = searchInput.value;
+        });
         
-        // Stack column (stack filter)
-        createCell(document.getElementById('stack-filter')),
+        searchCell.appendChild(clone);
+    }
+    controlsRow.appendChild(searchCell);
+    
+    // Add stack filter in the third cell
+    const stackCell = document.createElement('td');
+    const stackFilter = document.getElementById('stack-filter');
+    if (stackFilter) {
+        const clone = stackFilter.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.addEventListener('change', () => {
+            stackFilter.value = clone.value;
+            stackFilter.dispatchEvent(new Event('change'));
+        });
         
-        // Tags column (tag filter)
-        createCell(document.getElementById('tag-filter')),
+        stackFilter.addEventListener('change', () => {
+            clone.value = stackFilter.value;
+        });
         
-        // Status column (status filter)
-        createCell(document.getElementById('status-filter')),
+        stackCell.appendChild(clone);
+    }
+    controlsRow.appendChild(stackCell);
+    
+    // Add tag filter in the fourth cell
+    const tagCell = document.createElement('td');
+    const tagFilter = document.getElementById('tag-filter');
+    if (tagFilter) {
+        const clone = tagFilter.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.addEventListener('change', () => {
+            tagFilter.value = clone.value;
+            tagFilter.dispatchEvent(new Event('change'));
+        });
         
-        // Uptime column (group filter)
-        createCell(document.getElementById('group-filter')),
+        tagFilter.addEventListener('change', () => {
+            clone.value = tagFilter.value;
+        });
         
-        // CPU column (refresh button)
-        createCell(document.getElementById('refresh-btn')),
+        tagCell.appendChild(clone);
+    }
+    controlsRow.appendChild(tagCell);
+    
+    // Add host filter in the fifth cell
+    const hostCell = document.createElement('td');
+    const hostFilter = document.getElementById('host-filter');
+    if (hostFilter) {
+        const clone = hostFilter.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.addEventListener('change', () => {
+            hostFilter.value = clone.value;
+            hostFilter.dispatchEvent(new Event('change'));
+        });
         
-        // Memory column (toggle view button)
-        createCell(document.getElementById('toggle-view')),
+        hostFilter.addEventListener('change', () => {
+            clone.value = hostFilter.value;
+        });
         
-        // Actions column (for batch actions)
-        createActionsColumnCell()
+        hostCell.appendChild(clone);
+    }
+    controlsRow.appendChild(hostCell);
+    
+    // Add status filter in the sixth cell
+    const statusCell = document.createElement('td');
+    const statusFilter = document.getElementById('status-filter');
+    if (statusFilter) {
+        const clone = statusFilter.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.addEventListener('change', () => {
+            statusFilter.value = clone.value;
+            statusFilter.dispatchEvent(new Event('change'));
+        });
+        
+        statusFilter.addEventListener('change', () => {
+            clone.value = statusFilter.value;
+        });
+        
+        statusCell.appendChild(clone);
+    }
+    controlsRow.appendChild(statusCell);
+    
+    // Add group filter in the seventh cell (uptime column)
+    const groupCell = document.createElement('td');
+    const groupFilter = document.getElementById('group-filter');
+    if (groupFilter) {
+        const clone = groupFilter.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.addEventListener('change', () => {
+            groupFilter.value = clone.value;
+            groupFilter.dispatchEvent(new Event('change'));
+        });
+        
+        groupFilter.addEventListener('change', () => {
+            clone.value = groupFilter.value;
+        });
+        
+        groupCell.appendChild(clone);
+    }
+    controlsRow.appendChild(groupCell);
+    
+    // Add refresh and toggle buttons in the eighth cell (CPU column)
+    // We're not using sort filter in table view, so we'll put these buttons here
+    const buttonCell = document.createElement('td');
+    buttonCell.style.display = 'flex';
+    buttonCell.style.gap = '4px';
+    buttonCell.style.justifyContent = 'flex-end';
+    
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) {
+        const clone = refreshBtn.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.onclick = refreshContainers;
+        buttonCell.appendChild(clone);
+    }
+    
+    const toggleViewBtn = document.getElementById('toggle-view');
+    if (toggleViewBtn) {
+        const clone = toggleViewBtn.cloneNode(true);
+        clone.removeAttribute('id');
+        clone.onclick = toggleView;
+        buttonCell.appendChild(clone);
+    }
+    
+    controlsRow.appendChild(buttonCell);
+    
+    // Add an empty cell for memory column
+    controlsRow.appendChild(document.createElement('td'));
+    
+    // Add an empty cell for batch actions (Actions column)
+    const batchActionsCell = document.createElement('td');
+    batchActionsCell.id = 'table-batch-actions-cell';
+    
+    // Create container for batch actions that will be shown/hidden
+    const batchActionButtons = document.createElement('div');
+    batchActionButtons.id = 'table-batch-actions';
+    batchActionButtons.style.display = 'none'; // Hidden by default
+    batchActionButtons.style.display = 'flex';
+    batchActionButtons.style.gap = '4px';
+    batchActionButtons.style.justifyContent = 'flex-end';
+    
+    // Add batch action buttons
+    const actions = [
+        { label: 'Start', action: 'start', class: 'btn-success' },
+        { label: 'Stop', action: 'stop', class: 'btn-error' },
+        { label: 'Restart', action: 'restart', class: 'btn-primary' },
+        { label: 'Remove', action: 'remove', class: 'btn-error' }
     ];
     
-    cells.forEach(cell => controlsRow.appendChild(cell));
+    actions.forEach(item => {
+        const button = document.createElement('button');
+        button.className = `btn ${item.class}`;
+        button.textContent = item.label;
+        button.onclick = () => batchAction(item.action);
+        button.style.padding = '0.4rem 0.5rem';
+        button.style.fontSize = '0.8rem';
+        batchActionButtons.appendChild(button);
+    });
+    
+    batchActionsCell.appendChild(batchActionButtons);
+    controlsRow.appendChild(batchActionsCell);
+    
+    // Update button display based on batch mode
+    const isBatchMode = document.getElementById('containers-list').classList.contains('batch-mode');
+    if (isBatchMode) {
+        batchActionButtons.style.display = 'flex';
+        document.querySelector('.table-batch-toggle')?.classList.add('active');
+    } else {
+        batchActionButtons.style.display = 'none';
+        document.querySelector('.table-batch-toggle')?.classList.remove('active');
+    }
 }
 function createCellWithElement(element) {
     const td = document.createElement('td');

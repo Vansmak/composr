@@ -5,7 +5,7 @@
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/vansmak)
 
 A web-based interface for managing Docker containers and docker-compose configurations.
-
+#### New feature Multi-Host Management see below
 ## Key Features
 
 ### Container Management
@@ -178,7 +178,67 @@ docker-manager/
 ## Configuration
 
 The application expects a specific path to your parent Directory before your docker-compose.yml files. Make sure to update the `COMPOSE_DIR` variable before running.
+## Multi-Host Management
 
+Composr now supports managing Docker containers across multiple hosts, allowing you to control your entire container infrastructure from a single interface.
+
+### Remote Host Support
+
+The recommended method for connecting to remote Docker hosts is via the **Composr Agent**. This lightweight API server provides secure access to a remote Docker daemon without exposing the Docker socket directly.
+
+#### How it Works
+
+1. **Deploy the Agent**: Run the Composr Agent on any remote server where you want to manage containers
+2. **Add the Host**: Add the remote host to your main Composr UI 
+3. **Manage Containers**: View and control containers across all your hosts
+
+#### Setting Up a Remote Host
+
+**1. Install the Composr Agent on your remote server:**
+
+
+# Pull the agent image
+```
+docker pull yourusername/composr-agent:latest
+```
+# Run the agent
+```
+docker run -d \
+  --name composr-agent \
+  -p 5005:5005 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /path/to/compose/files:/app/projects \
+  --restart unless-stopped \
+  yourusername/composr-agent:latest
+```
+
+  Add the remote host in Composr:
+
+    Go to the "Docker Hosts" tab
+    Click "Add Host"
+    Enter a name for the host (e.g., "production-server")
+    URL: http://your-server-ip:5005
+    Click "Test Connection" to verify
+    Save the host
+
+    Security Considerations
+
+    The Composr Agent only exposes necessary Docker functionality through a controlled API
+    No need to expose the Docker API port (2375/2376) directly
+    All connections use standard HTTP/HTTPS ports, simplifying firewall configuration
+    Consider placing the agent behind a reverse proxy with authentication for additional security
+
+    Connection Types
+    While Composr technically supports multiple connection methods, the Composr Agent is the recommended approach:
+
+      Agent: http://hostname:5005 (recommended) untested
+      TCP: tcp://hostname:2375 (limited support)
+      TLS: tcp://hostname:2376 (limited support)
+      SSH: ssh://user@hostname (limited support)
+      Socket: unix:///var/run/docker.sock (local only)
+
+
+    Important: Limited or no support is available for connection types other than the Composr Agent. For best results and future compatibility, use the Agent connection method.
 ## Security Notice
 
 ⚠️ **Warning**: This application has full control over Docker containers on your system. It should only be deployed in trusted environments and should not be exposed to the public internet without proper authentication.

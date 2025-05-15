@@ -251,39 +251,42 @@ header {
     margin: 0.5rem 0;
 }
 
-/* === Tabs === */
+/* Tabs styling */
 .tabs {
     display: flex;
-    gap: 0;
-    margin-bottom: 0;
-    border-bottom: 2px solid var(--border-color);
+    background-color: var(--background-secondary);
+    border-radius: 8px 8px 0 0;
+    overflow-x: auto; /* Allow horizontal scrolling if needed */
 }
 
 .tab {
-    padding: 0.75rem 1.5rem;
-    background: var(--bg-secondary);
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1.25rem;
+    background: none;
+    border: none;
     color: var(--text-secondary);
-    border-radius: 8px 8px 0 0;
     cursor: pointer;
-    font-size: 0.875rem;
-    margin-right: 2px;
-    position: relative;
-    top: 2px;
-    border: 2px solid var(--border-color);
-    border-bottom: none;
-    transition: all 0.2s;
+    transition: background-color 0.2s;
+    white-space: nowrap;
 }
 
 .tab:hover {
-    background: var(--bg-card);
+    background-color: var(--background-tertiary);
 }
 
 .tab.active {
-    background: var(--bg-primary);
     color: var(--text-primary);
-    border-bottom: 2px solid var(--bg-primary);
-    z-index: 1;
+    border-bottom: 2px solid var(--accent-primary);
+    background-color: var(--background-tertiary);
 }
+
+.tab-icon {
+    font-style: normal;
+    font-size: 1rem;
+    margin-right: 0.5rem;
+}
+
 
 .tab-content {
     display: none;
@@ -298,7 +301,22 @@ header {
 .tab-content.active {
     display: block;
 }
-
+/* Responsive tabs */
+@media (max-width: 768px) {
+    .tab {
+        padding: 0.5rem 0.75rem;
+    }
+    
+    .tab-text {
+        #display: none; /* Hide text on mobile */
+    }
+    
+    .tab-icon {
+        display: none; 
+        margin-right: 0; /* No margin when text is hidden */
+        font-size: 1.5rem; /* Larger icons on mobile */
+    }
+}
 /* === Subtabs === */
 .config-subtabs {
     display: flex;
@@ -307,6 +325,19 @@ header {
     background: var(--bg-secondary);
     padding: 0.25rem;
     border-radius: 8px;
+}
+.warning-notice {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background-color: var(--accent-warning-muted);
+    border-left: 3px solid var(--accent-warning);
+    border-radius: 4px;
+}
+
+.warning-notice p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
 }
 
 .subtab {

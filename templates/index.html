@@ -6,6 +6,7 @@
     <title>Composr</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <link rel="stylesheet" href="/static/css/editor.css">
+    <link rel="stylesheet" href="/static/css/remote.css">
     
     <!-- Monaco Editor Loader -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
@@ -33,6 +34,7 @@
                     </div>
                 </div>
             </div>
+           
             <div id="filter-menu" class="filter-menu">
                 <!-- Mobile filters (duplicates of the ones above, but visible on mobile) -->
                 <select id="stack-filter-mobile" class="filter-select">
@@ -45,6 +47,7 @@
                     <option value="none">No Group</option>
                     <option value="tag">Tags</option>
                     <option value="stack">Compose</option>
+                    <option value="host">Host</option>
                 </select>
                 <select id="status-filter-mobile" class="filter-select">
                     <option value="">Status</option>
@@ -68,44 +71,73 @@
         </header>
         
         <div class="tabs">
-            <button class="tab active" onclick="switchTab('containers')">Containers</button>
-           
-            <button class="tab" onclick="switchTab('config')">Config</button>
-            <button class="tab" onclick="switchTab('images')">Images</button>
-            
+            <button class="tab active" onclick="switchTab('containers')">
+                <span class="tab-icon">📦</span>
+                <span class="tab-text">Containers</span>
+            </button>
+            <button class="tab" onclick="switchTab('config')">
+                <span class="tab-icon">⚙️</span>
+                <span class="tab-text">Config</span>
+            </button>
+            <button class="tab" onclick="switchTab('images')">
+                <span class="tab-icon">🖼️</span>
+                <span class="tab-text">Images</span>
+            </button>
+            <button class="tab" onclick="switchTab('hosts')">
+                <span class="tab-icon">🖥️</span>
+                <span class="tab-text">Hosts</span>
+            </button>
         </div>
         <div class="filter-controls">
-            <button id="toggle-batch-mode" onclick="toggleBatchMode()" title="Toggle Batch Mode" aria-label="Enable batch mode">
+            <!-- Batch mode toggle -->
+            <button id="toggle-batch-mode" class="icon-button" onclick="toggleBatchMode()" title="Toggle Batch Mode" aria-label="Enable batch mode">
                 <span class="batch-icon">☑</span>
             </button>
+            
+            <!-- Search input -->
             <input type="text" id="search-input" class="filter-input" placeholder="Search containers...">
-            <!-- Desktop-only filters -->
-            <select id="stack-filter" class="filter-select">
-                <option value="">All Compose</option>
-            </select>
-            <select id="tag-filter" class="filter-select">
-                <option value="">All Tags</option>
-            </select>
             
-            <select id="status-filter" class="filter-select">
-                <option value="">Status</option>
-                <option value="running">Running</option>
-                <option value="exited">Stopped</option>
-            </select>
-            <select id="group-filter" class="filter-select">
-                <option value="none">No Group</option>
-                <option value="tag">Tags</option>
-                <option value="stack">Compose</option>
-            </select>
-            <select id="sort-filter" class="filter-select">
-                <option value="name">Name</option>
-                <option value="cpu">CPU</option>
-                <option value="memory">Memory</option>
-                <option value="uptime">Uptime</option>
-            </select>
-            <button id="toggle-view" class="btn btn-primary" onclick="toggleView()">⋮⋮</button>
-            <button id="refresh-btn" class="refresh-btn">Refresh</button>
+            <!-- Filter dropdowns: all using the same class and width -->
+            <div class="filters-container">
+                <select id="stack-filter" class="filter-select">
+                    <option value="">Stack</option>
+                </select>
+                
+                <select id="tag-filter" class="filter-select">
+                    <option value="">Tag</option>
+                </select>
+                
+                <select id="host-filter" class="filter-select">
+                    <option value="">Host</option>
+                </select>
+                
+                <select id="status-filter" class="filter-select">
+                    <option value="">Status</option>
+                    <option value="running">Running</option>
+                    <option value="exited">Stopped</option>
+                </select>
+                
+                <select id="group-filter" class="filter-select">
+                    <option value="none">Group by</option>
+                    <option value="stack">Compose</option>
+                    <option value="tag">Tag</option>
+                    <option value="host">Host</option>
+                </select>
+                
+                <select id="sort-filter" class="filter-select">
+                    <option value="name">Sort by</option>
+                    <option value="name">Name</option>
+                    <option value="cpu">CPU</option>
+                    <option value="memory">Memory</option>
+                    <option value="uptime">Uptime</option>
+                </select>
+            </div>
             
+            <!-- Action buttons -->
+            <div class="action-buttons">
+                <button id="toggle-view" class="btn btn-icon" onclick="toggleView()" title="Toggle View">⋮⋮</button>
+                <button id="refresh-btn" class="btn btn-primary">Refresh</button>
+            </div>
         </div>
         <!-- Batch Actions -->
         <div id="batch-actions" class="batch-actions">
@@ -138,6 +170,7 @@
                             <th onclick="sortTable('name')">Name</th>
                             <th>Stack</th>
                             <th>Tags</th>
+                            <th>Host</th>
                             <th onclick="sortTable('status')">Status</th>
                             <th onclick="sortTable('uptime')">Uptime</th>
                             <th onclick="sortTable('cpu')">CPU</th>
@@ -149,7 +182,53 @@
                 </table>
             </div>
         </div>
-        
+        <div id="hosts-tab" class="tab-content">
+                <div class="hosts-management">
+                    <h3>Docker Host Management</h3>
+                    
+                    <!-- Current hosts list -->
+                    <div class="hosts-list">
+                        <h4>Configured Hosts</h4>
+                        <div id="hosts-list-content">
+                            <!-- Will be populated by JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <!-- Add new host form -->
+                    <div class="add-host-form">
+                        <h4>Add New Host</h4>
+                        <div class="form-group">
+                            <label>Name:</label>
+                            <input type="text" id="new-host-name" placeholder="e.g., server1">
+                        </div>
+                        <div class="form-group">
+                            <label>Connection URL:</label>
+                            <input type="text" id="new-host-url" placeholder="e.g., tcp://192.168.1.100:2375">
+                        </div>
+                        <div class="form-group">
+                            <label>Group (optional):</label>
+                            <input type="text" id="new-host-group" placeholder="e.g., production">
+                        </div>
+                        <button class="btn btn-primary" onclick="addDockerHost()">Add Host</button>
+                    </div>
+                    
+                    <!-- Connection help -->
+                    <div class="connection-help">
+                        <h4>Connection Types</h4>
+                        <ul>
+                            <li><strong>Agent:</strong> http://hostname:5005 (Composr Agent)</li>
+                            <li><strong>TCP:</strong> tcp://hostname:2375 (unsecured)</li>
+                            <li><strong>TLS:</strong> tcp://hostname:2376 (with certificates)</li>
+                            <li><strong>SSH:</strong> ssh://user@hostname</li>
+                            <li><strong>Local Socket:</strong> unix:///var/run/docker.sock</li>
+                        </ul>
+                        <div class="warning-notice">
+                            <p><strong>Note:</strong> Multi-host management is still in development. The Agent connection type is recommended for production use as it's more secure than exposing Docker directly.</p>
+                            <p><strong>Important:</strong> Limited or no support is available for connection types other than the Composr Agent. For best results and future compatibility, use the Agent connection method.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
         <!-- Config Tab with subtabs -->
         <div id="config-tab" class="tab-content">
             <div class="config-subtabs">
@@ -233,5 +312,6 @@
     <script src="/static/js/editor.js"></script>
     <script src="/static/js/main.js"></script>
     <script src="/static/js/table-view.js"></script>
+    <script src="/static/js/remote.js"></script>
 </body>
 </html>

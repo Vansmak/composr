@@ -1,0 +1,81 @@
+/* Add to your styles.css */
+.hosts-management {
+    padding: 1rem;
+}
+
+.hosts-list {
+    margin-bottom: 2rem;
+    background: var(--card-background);
+    padding: 1rem;
+    border-radius: 0.5rem;
+}
+
+.host-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.host-item:last-child {
+    border-bottom: none;
+}
+
+.host-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.host-status.connected {
+    color: var(--success-color);
+}
+
+.host-status.disconnected {
+    color: var(--error-color);
+}
+
+.current-badge {
+    background: var(--primary-color);
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.8rem;
+}
+
+.add-host-form {
+    background: var(--card-background);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-bottom: 2rem;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 500;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    background: var(--background-color);
+    color: var(--text-color);
+}
+
+.connection-help {
+    background: var(--card-background);
+    padding: 1rem;
+    border-radius: 0.5rem;
+}
+
+.connection-help ul {
+    margin: 0.5rem 0 0 1.5rem;
+}

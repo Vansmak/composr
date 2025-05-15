@@ -14,9 +14,18 @@ from functions import (
     get_compose_files, scan_all_compose_files, resolve_compose_file_path,
     extract_env_from_compose, calculate_uptime, find_caddy_container, get_compose_files_cached
 )
+from remote_hosts import host_manager
+
+from remote_hosts import host_manager
+import time
+
+# Wait for local client to be ready
+start_time = time.time()
+while host_manager.get_client('local') is None and time.time() - start_time < 5:
+    time.sleep(0.1)
 
 # Add after imports
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -55,16 +64,105 @@ _cache_lock = threading.Lock()
 CACHE_TTL = 10  # seconds
 
 # Initialize Docker client
-client = initialize_docker_client(logger)
+client = host_manager.get_client()
 
 # Main route
 @app.route('/')
 def index():
     return render_template('index.html')
 
+# Update API endpoints to use host_manager
+@app.route('/api/docker/hosts')
+def get_docker_hosts():
+    return jsonify({
+        'hosts': host_manager.get_hosts_status(),
+        'current': host_manager.current_host
+    })
+
+@app.route('/api/docker/switch-host', methods=['POST'])
+def switch_docker_host():
+    data = request.json
+    new_host = data.get('host')
+    
+    try:
+        global client
+        client = host_manager.switch_host(new_host)
+        return jsonify({
+            'status': 'success',
+            'message': f'Switched to {new_host}'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+
+# ADD THIS ENTIRE NEW ENDPOINT
+@app.route('/api/containers/all')
+def get_all_containers():
+    """Get containers from all connected hosts"""
+    all_containers = []
+    
+    try:
+        # Get hosts status
+        hosts_status = host_manager.get_hosts_status()
+        
+        # Iterate through each connected host
+        for host_name, status in hosts_status.items():
+            if status['connected']:
+                # Get containers from this host
+                client = host_manager.get_client(host_name)
+                if client:
+                    try:
+                        containers = []
+                        for container in client.containers.list(all=True):
+                            # Build container data similar to regular endpoint
+                            labels = container.labels
+                            compose_project = labels.get('com.docker.compose.project', None)
+                            compose_file = None
+                            config_files = labels.get('com.docker.compose.project.config_files', None)
+                            if config_files:
+                                file_path = config_files.split(',')[0]
+                                compose_file = os.path.basename(file_path)
+                            
+                            container_data = {
+                                'id': container.short_id,
+                                'name': container.name,
+                                'status': container.status,
+                                'image': container.image.tags[0] if container.image.tags else 'unknown',
+                                'compose_project': compose_project,
+                                'compose_file': compose_file,
+                                'uptime': calculate_uptime(container.attrs['State'].get('StartedAt', ''), logger),
+                                'cpu_percent': 0,
+                                'memory_usage': 0,
+                                'tags': [],
+                                'host': host_name
+                            }
+                            all_containers.append(container_data)
+                    except Exception as e:
+                        logger.error(f"Failed to get containers from host {host_name}: {e}")
+                        
+        return jsonify(all_containers)
+        
+    except Exception as e:
+        logger.error(f"Failed to get containers from all hosts: {e}")
+        return jsonify({'error': str(e)}), 500
+    
 # Container routes
 @app.route('/api/containers')
 def get_containers():
+    """Get containers with host information"""
+    # ADD THIS: Check for specific host parameter
+    host_param = request.args.get('host')
+    
+    # MODIFY: Get client for specified host or current host
+    if host_param:
+        client = host_manager.get_client(host_param)
+        current_host = host_param
+    else:
+        client = host_manager.get_client()
+        current_host = host_manager.current_host
     global _container_cache, _cache_timestamp
     if client is None:
         logger.error("Docker client not initialized")
@@ -110,7 +208,8 @@ def get_containers():
                     'uptime': calculate_uptime(container.attrs['State']['StartedAt'], logger),
                     'cpu_percent': 0,
                     'memory_usage': 0,
-                    'tags': container_tags
+                    'tags': container_tags,
+                    'host': current_host  # Add host information
                 }
                 containers.append(container_data)
 
@@ -180,6 +279,7 @@ def get_containers():
     except Exception as e:
         logger.error(f"Failed to list containers: {e}")
         return jsonify([])
+    
 @app.route('/api/container/<id>/exec', methods=['POST'])
 def exec_in_container(id):
     if client is None:
@@ -873,6 +973,7 @@ def apply_compose():
     except Exception as e:
         logger.error(f"Failed to apply compose file: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)})
+    
 # Environment file routes
 @app.route('/api/env/files')
 def get_env_files():
@@ -1054,6 +1155,77 @@ def remove_image(id):
     except Exception as e:
         logger.error(f"Failed to remove image {id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
+    
+@app.route('/api/docker/hosts/add', methods=['POST'])
+def add_docker_host():
+    """Add a new Docker host"""
+    try:
+        data = request.json
+        name = data.get('name')
+        url = data.get('url')
+        group = data.get('group')
+        
+        if not name or not url:
+            return jsonify({'status': 'error', 'message': 'Name and URL are required'})
+        
+        host_manager.add_host(name, url, group)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Added host {name}'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/docker/hosts/remove', methods=['POST'])
+def remove_docker_host():
+    """Remove a Docker host"""
+    try:
+        data = request.json
+        name = data.get('name')
+        
+        if not name:
+            return jsonify({'status': 'error', 'message': 'Host name is required'})
+        
+        host_manager.remove_host(name)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Removed host {name}'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/docker/hosts/test', methods=['POST'])
+def test_docker_host():
+    """Test connection to a Docker host"""
+    try:
+        data = request.json
+        url = data.get('url')
+        
+        if not url:
+            return jsonify({'status': 'error', 'message': 'URL is required'})
+        
+        # Try to connect
+        test_client = docker.DockerClient(base_url=url, timeout=5)
+        test_client.ping()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Connection successful'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Connection failed: {str(e)}'
+        })
+    
 # Caddy file routes
 @app.route('/api/caddy/file')
 def get_caddy_file():

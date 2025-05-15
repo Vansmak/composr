@@ -12,7 +12,65 @@ let currentComposeFile = '';
 let currentEnvFile = '';
 let currentCaddyFile = '';
 let refreshTimer = null;
+// Make these functions globally available for cross-file access
+window.extractStackName = function(container) {
+    try {
+        // Use compose_project if available
+        if (container.compose_project && container.compose_project.trim()) {
+            return container.compose_project;
+        }
 
+        // Use compose_file directory as the stack name
+        if (container.compose_file) {
+            const pathParts = container.compose_file.split('/').filter(p => p.length > 0);
+            const systemDirs = ['home', 'var', 'opt', 'usr', 'etc', 'mnt', 'srv', 'data', 'app', 'docker'];
+            
+            for (const part of pathParts) {
+                if (!systemDirs.includes(part.toLowerCase())) {
+                    return part;
+                }
+            }
+            
+            if (pathParts.length > 0) {
+                return pathParts[pathParts.length - 2] || pathParts[0];
+            }
+        }
+
+        // Fallback
+        return container.name || 'Unknown';
+    } catch (error) {
+        console.error('Error extracting stack name:', error);
+        return 'Unknown';
+    }
+};
+
+window.findComposeFileForStack = function(containers) {
+    if (!containers || containers.length === 0) return null;
+    
+    const stackName = window.extractStackName(containers[0]);
+    
+    // Try to extract compose file directly from container
+    for (const container of containers) {
+        if (container.compose_file) {
+            if (container.compose_file.startsWith('../')) {
+                return container.compose_file;
+            }
+            
+            if (!container.compose_file.includes('/') && stackName) {
+                return `${stackName}/${container.compose_file}`;
+            }
+            
+            return container.compose_file;
+        }
+    }
+    
+    // No compose file found, construct a default path
+    if (stackName) {
+        return `${stackName}/docker-compose.yaml`;
+    }
+    
+    return null;
+};
 // Theme handling
 // 10. Update setTheme function
 function setTheme(theme) {
@@ -50,7 +108,58 @@ function toggleFilterMenu() {
 
 }
 
+// Load available Docker hosts on startup
+function loadDockerHosts() {
+    fetch('/api/docker/hosts')
+        .then(response => response.json())
+        .then(data => {
+            const select = document.getElementById('docker-host-select');
+            select.innerHTML = '';
+            
+            data.hosts.forEach(host => {
+                const option = document.createElement('option');
+                option.value = host;
+                option.textContent = host;
+                if (host === data.current) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+        })
+        .catch(error => {
+            console.error('Failed to load Docker hosts:', error);
+        });
+}
 
+// Switch Docker host
+function switchDockerHost() {
+    const select = document.getElementById('docker-host-select');
+    const newHost = select.value;
+    
+    setLoading(true, `Connecting to ${newHost}...`);
+    
+    fetch('/api/docker/switch-host', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: newHost })
+    })
+    .then(response => response.json())
+    .then(result => {
+        setLoading(false);
+        if (result.status === 'success') {
+            showMessage('success', result.message);
+            refreshContainers(); // Reload containers from new host
+        } else {
+            showMessage('error', result.message);
+            // Revert selection if failed
+            loadDockerHosts();
+        }
+    })
+    .catch(error => {
+        setLoading(false);
+        showMessage('error', 'Failed to switch Docker host');
+    });
+}
 
 function syncFilters(sourceId, targetId) {
     const source = document.getElementById(sourceId);
@@ -103,6 +212,8 @@ function switchTab(tabName) {
         if (pendingFile) {
             console.log('Found pending compose file when switching to config tab:', pendingFile);
         }
+    } else if (tabName === 'hosts') {
+        loadHostsList();  // Load the hosts management view
     }
     
     if (document.getElementById('batch-actions')) {
@@ -121,19 +232,19 @@ function switchSubTab(subtabName) {
     if (subtabName === 'compose') {
         loadComposeFiles();
         // Re-initialize Monaco for compose editor if needed
-        if (window.initializeMonacoEditor && !window.monacoEditors['compose-editor']) {
+        if (window.initializeMonacoEditor && !window.monacoEditors?.['compose-editor']) {
             window.initializeMonacoEditor('compose-editor', 'yaml');
         }
     } else if (subtabName === 'env') {
         scanEnvFiles();
         // Re-initialize Monaco for env editor if needed
-        if (window.initializeMonacoEditor && !window.monacoEditors['env-editor']) {
+        if (window.initializeMonacoEditor && !window.monacoEditors?.['env-editor']) {
             window.initializeMonacoEditor('env-editor', 'ini');
         }
     } else if (subtabName === 'caddy') {
         loadCaddyFile();
         // Re-initialize Monaco for caddy editor if needed
-        if (window.initializeMonacoEditor && !window.monacoEditors['caddy-editor']) {
+        if (window.initializeMonacoEditor && !window.monacoEditors?.['caddy-editor']) {
             window.initializeMonacoEditor('caddy-editor', 'text');
         }
     }
@@ -272,11 +383,18 @@ function renderContainers(containers) {
     const tableView = document.getElementById('table-view');
     const noContainers = document.getElementById('no-containers');
     const isBatchMode = document.getElementById('containers-list').classList.contains('batch-mode');
-    const tagFilter = document.getElementById('tag-filter').value || document.getElementById('tag-filter-mobile').value;
-    const stackFilter = document.getElementById('stack-filter').value || document.getElementById('stack-filter-mobile').value;
+    
+    // Define ALL filter variables
+    const search = document.getElementById('search-input').value || '';
+    const status = document.getElementById('status-filter').value || document.getElementById('status-filter-mobile').value || '';
+    const tag = document.getElementById('tag-filter').value || document.getElementById('tag-filter-mobile').value || '';
+    const stack = document.getElementById('stack-filter').value || document.getElementById('stack-filter-mobile').value || '';
+    const tagFilter = tag; // for backward compatibility 
+    const stackFilter = stack; // for backward compatibility
     const group = document.getElementById('group-filter').value || document.getElementById('group-filter-mobile').value || 'none';
     const sort = document.getElementById('sort-filter').value || document.getElementById('sort-filter-mobile').value || 'name';
-
+    const sortDirection = 'asc'; // Default sort direction
+    
     // Clear existing content
     document.getElementById('containers-list').innerHTML = '';
     if (tableView) {
@@ -321,6 +439,9 @@ function renderContainers(containers) {
             renderContainersByStack(filteredContainers);
         } else if (group === 'tag' || sort === 'tag') {
             renderContainersByTag(filteredContainers);
+        } else if (group === 'host') {
+            renderContainersByHost(filteredContainers);
+        
         } else {
             // Sort containers
             if (sort === 'name') {
@@ -380,7 +501,63 @@ function renderContainersByTag(containers) {
     
     updateTagFilterOptions(Array.from(allTags));
 }
-
+// ADD THIS NEW FUNCTION after renderContainersByTag
+function renderContainersByHost(containers) {
+    const list = document.getElementById('containers-list');
+    const noContainers = document.getElementById('no-containers');
+    
+    list.innerHTML = '';
+    list.className = 'container-grid';
+    
+    if (!Array.isArray(containers) || !containers.length) {
+        noContainers.style.display = 'block';
+        return;
+    }
+    
+    noContainers.style.display = 'none';
+    
+    // Group containers by host
+    const hostGroups = {};
+    containers.forEach(container => {
+        const host = container.host || 'local';
+        if (!hostGroups[host]) {
+            hostGroups[host] = [];
+        }
+        hostGroups[host].push(container);
+    });
+    
+    // Render each host group
+    Object.keys(hostGroups).sort().forEach(host => {
+        const hostContainers = hostGroups[host];
+        
+        // Create host header
+        const hostHeader = document.createElement('div');
+        hostHeader.className = 'stack-header';
+        const stats = {
+            total: hostContainers.length,
+            running: hostContainers.filter(c => c.status === 'running').length,
+            cpu: hostContainers.reduce((sum, c) => sum + (parseFloat(c.cpu_percent) || 0), 0).toFixed(1),
+            memory: Math.round(hostContainers.reduce((sum, c) => sum + (parseFloat(c.memory_usage) || 0), 0))
+        };
+        
+        hostHeader.innerHTML = `
+            <h3>${host}</h3>
+            <div class="stack-stats">
+                <span title="Container count">${stats.running}/${stats.total} running</span>
+                <span title="Total CPU usage">CPU: ${stats.cpu}%</span>
+                <span title="Total memory usage">Mem: ${stats.memory} MB</span>
+            </div>
+        `;
+        
+        list.appendChild(hostHeader);
+        
+        // Render containers for this host
+        hostContainers.sort((a, b) => a.name.localeCompare(b.name));
+        hostContainers.forEach(container => {
+            renderSingleContainer(container, list);
+        });
+    });
+}
 function renderSingleContainer(container, parentElement) {
     const isBatchMode = document.getElementById('containers-list').classList.contains('batch-mode');
     const card = document.createElement('div');
@@ -474,15 +651,25 @@ async function refreshContainers(sortKey = null, sortDirection = 'asc') {
             moveControlsToTable();
         }
         
+        // GET ALL THE FILTER VALUES HERE (before using them)
         const search = document.getElementById('search-input').value || '';
         const status = document.getElementById('status-filter').value || document.getElementById('status-filter-mobile').value || '';
         const tag = document.getElementById('tag-filter').value || document.getElementById('tag-filter-mobile').value || '';
         const stack = document.getElementById('stack-filter').value || document.getElementById('stack-filter-mobile').value || '';
+        const group = document.getElementById('group-filter').value || document.getElementById('group-filter-mobile').value || 'none';
         
         // Use provided sort parameters or fall back to dropdown value
         const sort = sortKey || document.getElementById('sort-filter').value || document.getElementById('sort-filter-mobile').value || 'name';
         
-        const url = `/api/containers?search=${encodeURIComponent(search)}&status=${status}&tag=${encodeURIComponent(tag)}&stack=${encodeURIComponent(stack)}&sort=${sort}&direction=${sortDirection}&nocache=${Date.now()}`;
+        // NOW you can use these variables in the URL
+        let url;
+        if (group === 'host') {
+            // Get containers from all hosts
+            url = `/api/containers/all?search=${encodeURIComponent(search)}&status=${status}&tag=${encodeURIComponent(tag)}&stack=${encodeURIComponent(stack)}&sort=${sort}&direction=${sortDirection}&nocache=${Date.now()}`;
+        } else {
+            // Get containers from current host
+            url = `/api/containers?search=${encodeURIComponent(search)}&status=${status}&tag=${encodeURIComponent(tag)}&stack=${encodeURIComponent(stack)}&sort=${sort}&direction=${sortDirection}&nocache=${Date.now()}`;
+        }
         
         const response = await fetch(url);
         if (!response.ok) {
@@ -907,76 +1094,60 @@ async function repullContainer(id) {
 // Updated toggleBatchMode function
 function toggleBatchMode() {
     const containersList = document.getElementById('containers-list');
-    const tableView = document.getElementById('table-view');
     const batchActions = document.getElementById('batch-actions');
+    const tableBatchActions = document.getElementById('table-batch-actions');
+    const tableView = document.getElementById('table-view');
     const toggleButton = document.getElementById('toggle-batch-mode');
-    const selectAllCheckbox = document.getElementById('select-all');
     
+    // Toggle batch mode class
     const isBatchMode = containersList.classList.toggle('batch-mode');
-    if (tableView) {
-        tableView.classList.toggle('batch-mode', isBatchMode);
+    
+    // Update toggle button appearance
+    if (toggleButton) {
+        toggleButton.classList.toggle('active', isBatchMode);
     }
     
+    // If we're in table view, update the table batch actions
+    if (tableView && tableView.classList.contains('active')) {
+        // Ensure table view also has batch mode class for styling
+        tableView.classList.toggle('batch-mode', isBatchMode);
+        
+        // Show/hide batch action buttons
+        if (tableBatchActions) {
+            tableBatchActions.style.display = isBatchMode ? 'flex' : 'none';
+        }
+    } 
+    // Otherwise update grid view batch actions
+    else if (batchActions) {
+        batchActions.classList.toggle('visible', isBatchMode);
+    }
+    
+    // Add checkboxes to grid items if in batch mode
     if (isBatchMode) {
-        toggleButton.classList.add('active');
-        
-        // Handle grid/table view appropriately
-        if (tableView && tableView.classList.contains('active')) {
-            // Table view - refresh with batch mode
-            refreshContainers();
-            // Add batch actions to table header
-            refreshTableBatchActions();
-        } else {
-            // Grid view - show batch actions and add checkboxes
-            batchActions.classList.add('visible');
-            
-            document.querySelectorAll('.container-card').forEach(card => {
-                if (!card.querySelector('.container-select')) {
-                    const checkbox = document.createElement('input');
-                    checkbox.type = 'checkbox';
-                    checkbox.className = 'container-select';
-                    checkbox.addEventListener('change', (e) => {
-                        card.classList.toggle('selected', e.target.checked);
-                    });
-                    card.appendChild(checkbox);
-                }
-            });
-        }
-        
-        if (selectAllCheckbox) {
-            selectAllCheckbox.disabled = false;
-            selectAllCheckbox.classList.remove('disabled');
-        }
-    } else {
-        // Exit batch mode
-        toggleButton.classList.remove('active');
-        batchActions.classList.remove('visible');
-        
-        // Remove table batch actions
-        const tableBatchActions = document.getElementById('table-batch-actions');
-        if (tableBatchActions && tableBatchActions.parentNode) {
-            tableBatchActions.parentNode.removeChild(tableBatchActions);
-        }
-        
-        if (selectAllCheckbox) {
-            selectAllCheckbox.disabled = true;
-            selectAllCheckbox.classList.add('disabled');
-            selectAllCheckbox.checked = false;
-        }
-        
-        // Clear selections
-        document.querySelectorAll('.container-select, .batch-checkbox').forEach(checkbox => {
-            checkbox.checked = false;
+        document.querySelectorAll('.container-card').forEach(card => {
+            if (!card.querySelector('.container-select')) {
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'container-select';
+                checkbox.addEventListener('change', (e) => {
+                    card.classList.toggle('selected', e.target.checked);
+                });
+                card.appendChild(checkbox);
+            }
         });
-        document.querySelectorAll('.container-card, #table-view tr').forEach(item => {
+    } else {
+        // Clear selections when leaving batch mode
+        document.querySelectorAll('.container-card.selected, #table-view tr.selected').forEach(item => {
             item.classList.remove('selected');
         });
         
-        // Refresh if in table view
-        if (tableView && tableView.classList.contains('active')) {
-            refreshContainers();
-        }
+        document.querySelectorAll('.container-select, .batch-checkbox').forEach(checkbox => {
+            checkbox.checked = false;
+        });
     }
+    
+    // Refresh to update the view
+    refreshContainers();
 }
 
 // Add this function to your main.js
@@ -1085,7 +1256,7 @@ function loadComposeFiles() {
             select.innerHTML = '<option value="">Select a compose file...</option>';
             if (data.files && data.files.length) {
                 console.log('Available compose files:', data.files);
-                
+               
                 // Add options to dropdown
                 data.files.forEach(file => {
                     const option = document.createElement('option');
@@ -1093,29 +1264,29 @@ function loadComposeFiles() {
                     option.textContent = file;
                     select.appendChild(option);
                 });
-                
+               
                 // Set current file if it exists
                 if (currentComposeFile) {
                     select.value = currentComposeFile;
                 }
-                
+               
                 // Process pending file if exists
                 const pendingFile = localStorage.getItem('pendingComposeFile');
                 if (pendingFile) {
                     console.log('Found pending compose file to load:', pendingFile);
-                    
+                   
                     // Clear the pending file first to prevent loops
                     localStorage.removeItem('pendingComposeFile');
-                    
+                   
                     // Get available options for easier debugging
                     const availableOptions = Array.from(select.options)
                         .map(opt => opt.value)
                         .filter(val => val);
                     console.log('Available options:', availableOptions);
-                    
+                   
                     // Find the best match
                     let matchedOption = findBestMatchingFile(pendingFile, availableOptions);
-                    
+                   
                     if (matchedOption) {
                         console.log('Found matching file:', matchedOption);
                         select.value = matchedOption;
@@ -1124,23 +1295,21 @@ function loadComposeFiles() {
                         console.log('Successfully loaded pending compose file');
                     } else {
                         console.warn('No matching file found for:', pendingFile);
-                        
-                        // Direct load as last resort
-                        if (pendingFile.includes('immich')) {
-                            directLoadCompose(pendingFile)
-                                .catch(() => {
-                                    // Special handling for immich
-                                    const basePathWithoutExt = pendingFile.substring(0, pendingFile.lastIndexOf('.'));
-                                    const altExt = pendingFile.endsWith('.yml') ? '.yaml' : '.yml';
-                                    const altPath = basePathWithoutExt + altExt;
-                                    
-                                    return directLoadCompose(altPath);
-                                })
-                                .catch(() => {
-                                    console.error('All direct load attempts failed');
-                                    showMessage('error', `Could not load ${pendingFile}`);
-                                });
-                        }
+                       
+                        // Try direct load as last resort (removed immich-specific check)
+                        directLoadCompose(pendingFile)
+                            .catch(() => {
+                                // Try with alternate extension
+                                const basePathWithoutExt = pendingFile.substring(0, pendingFile.lastIndexOf('.'));
+                                const altExt = pendingFile.endsWith('.yml') ? '.yaml' : '.yml';
+                                const altPath = basePathWithoutExt + altExt;
+                               
+                                return directLoadCompose(altPath);
+                            })
+                            .catch(() => {
+                                console.error('All direct load attempts failed');
+                                showMessage('error', `Could not load ${pendingFile}`);
+                            });
                     }
                 }
             } else {
@@ -1185,31 +1354,37 @@ function findBestMatchingFile(pendingFile, availableOptions) {
         }
     }
     
-    // 4. Match by path components (for ../path/file.ext format)
+    // 4. Match by path components
     if (pendingFile.includes('/')) {
         const pendingParts = pendingFile.split('/');
-        const pendingDirLower = pendingParts[pendingParts.length - 2].toLowerCase();
         const pendingFileBaseLower = pendingParts[pendingParts.length - 1].split('.')[0].toLowerCase();
         
-        for (const option of availableOptions) {
-            if (option.includes('/')) {
-                const optionParts = option.split('/');
-                const optionDirLower = optionParts[optionParts.length - 2].toLowerCase();
-                const optionFileBaseLower = optionParts[optionParts.length - 1].split('.')[0].toLowerCase();
-                
-                if (pendingDirLower === optionDirLower && pendingFileBaseLower === optionFileBaseLower) {
-                    console.log('Found match by path components:', option);
-                    return option;
+        // If the path has at least a directory and file
+        if (pendingParts.length >= 2) {
+            const pendingDirLower = pendingParts[pendingParts.length - 2].toLowerCase();
+            
+            for (const option of availableOptions) {
+                if (option.includes('/')) {
+                    const optionParts = option.split('/');
+                    if (optionParts.length >= 2) {
+                        const optionDirLower = optionParts[optionParts.length - 2].toLowerCase();
+                        const optionFileBaseLower = optionParts[optionParts.length - 1].split('.')[0].toLowerCase();
+                        
+                        if (pendingDirLower === optionDirLower && pendingFileBaseLower === optionFileBaseLower) {
+                            console.log('Found match by path components:', option);
+                            return option;
+                        }
+                    }
                 }
             }
         }
-    }
-    
-    // 5. Special case for immich
-    if (pendingFile.toLowerCase().includes('immich')) {
+        
+        // 5. Match by filename only
         for (const option of availableOptions) {
-            if (option.toLowerCase().includes('immich')) {
-                console.log('Found immich-specific match:', option);
+            const optionFileName = option.split('/').pop();
+            const pendingFileName = pendingFile.split('/').pop();
+            if (optionFileName.toLowerCase() === pendingFileName.toLowerCase()) {
+                console.log('Found match by filename only:', option);
                 return option;
             }
         }
@@ -1250,30 +1425,18 @@ function scanComposeFiles() {
                             .map(opt => opt.value)
                             .filter(val => val);
                         
-                        let matchedOption = null;
-                        
-                        // Try exact match
-                        if (availableOptions.includes(pendingFile)) {
-                            matchedOption = pendingFile;
-                        } else {
-                            // Try by parts
-                            const parts = pendingFile.split('/');
-                            const fileName = parts[parts.length - 1];
-                            
-                            for (const option of availableOptions) {
-                                if (option.endsWith(`/${fileName}`)) {
-                                    matchedOption = option;
-                                    break;
-                                }
-                            }
-                        }
+                        let matchedOption = findBestMatchingFile(pendingFile, availableOptions);
                         
                         if (matchedOption) {
                             select.value = matchedOption;
                             currentComposeFile = matchedOption;
                             loadCompose();
                         } else {
-                            showMessage('warning', `Could not find ${pendingFile} in available compose files`);
+                            // Try direct load as fallback
+                            directLoadCompose(pendingFile)
+                                .catch(() => {
+                                    showMessage('warning', `Could not find ${pendingFile} in available compose files`);
+                                });
                         }
                     }, 100);
                 } else {
@@ -1557,6 +1720,37 @@ function scanEnvFiles() {
                     option.textContent = file;
                     select.appendChild(option);
                 });
+                
+                // Check for pending env file
+                const pendingEnvFile = sessionStorage.getItem('pendingEnvFile');
+                if (pendingEnvFile) {
+                    console.log('Found pending env file:', pendingEnvFile);
+                    sessionStorage.removeItem('pendingEnvFile');
+                    
+                    // Try to find and select the file
+                    let found = false;
+                    for (let i = 0; i < select.options.length; i++) {
+                        if (select.options[i].value === pendingEnvFile) {
+                            select.value = pendingEnvFile;
+                            currentEnvFile = pendingEnvFile;
+                            found = true;
+                            loadEnvFile();
+                            break;
+                        }
+                    }
+                    
+                    if (!found) {
+                        // Add it if not found
+                        const option = document.createElement('option');
+                        option.value = pendingEnvFile;
+                        option.textContent = pendingEnvFile;
+                        select.appendChild(option);
+                        select.value = pendingEnvFile;
+                        currentEnvFile = pendingEnvFile;
+                        loadEnvFile();
+                    }
+                }
+                
                 showMessage('success', `Found ${data.files.length} .env files`);
             } else {
                 showMessage('info', 'No .env files found. Create one by extracting variables from a compose file.');
@@ -2090,123 +2284,212 @@ function showStackDetailsModal(stackName, composeFile) {
     document.body.appendChild(modal);
     
     // Load stack resources
-    getStackResources(stackName).then(resources => {
-        const detailsContent = modal.querySelector('.stack-details-content');
-        detailsContent.innerHTML = `
-            <div class="stack-resources" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-                <div class="resource-section">
-                    <h4>Volumes (${resources.volumes.length})</h4>
-                    <ul style="list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto;">
-                        ${resources.volumes.length > 0 
-                            ? resources.volumes.map(v => `
-                                <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
-                                    ${v.name}
-                                    ${v.in_use ? `<span style="color: var(--accent-success)"> • in use</span>` : ''}
-                                </li>
-                            `).join('')
-                            : '<li style="font-style: italic; color: var(--text-secondary);">No volumes</li>'
-                        }
-                    </ul>
-                </div>
-                <div class="resource-section">
-                    <h4>Networks (${resources.networks.length})</h4>
-                    <ul style="list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto;">
-                        ${resources.networks.length > 0
-                            ? resources.networks.map(n => `
-                                <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
-                                    ${n.name}
-                                    ${n.external ? `<span style="color: var(--accent-warning)"> • external</span>` : ''}
-                                </li>
-                            `).join('')
-                            : '<li style="font-style: italic; color: var(--text-secondary);">No custom networks</li>'
-                        }
-                    </ul>
-                </div>
-            </div>
+    getStackResources(stackName)
+        .then(resources => {
+            const detailsContent = modal.querySelector('.stack-details-content');
             
-            ${resources.envFile || resources.images.length > 0 ? `
-                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
-                    ${resources.envFile ? `
-                        <div style="margin-bottom: 1rem;">
-                            <h4>Environment Configuration</h4>
-                            <p style="color: var(--text-secondary); font-size: 0.85rem;">
-                                .env file: ${resources.envFile}
-                                <button class="btn btn-primary btn-sm" style="margin-left: 1rem;" onclick="document.querySelectorAll('.logs-modal').forEach(m => m.remove()); openEnvInEditor('${resources.envFile}')">
-                                    Edit .env
-                                </button>
-                            </p>
+            // Group mounts by type
+            const bindMounts = resources.mounts.filter(m => m.type === 'bind');
+            const volumeMounts = resources.mounts.filter(m => m.type === 'volume');
+            
+            detailsContent.innerHTML = `
+                <div class="stack-resources" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                    <div class="resource-section">
+                        <h4>Mounts (${resources.mounts.length})</h4>
+                        <div style="max-height: 200px; overflow-y: auto;">
+                            ${bindMounts.length > 0 ? `
+                                <h5 style="margin: 0.5rem 0; font-size: 0.9rem;">Bind Mounts</h5>
+                                <ul style="list-style: none; padding: 0; margin: 0 0 1rem 0;">
+                                    ${bindMounts.map(m => `
+                                        <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
+                                            <div style="font-weight: 500;">${m.container}</div>
+                                            <div style="margin-left: 1rem; font-size: 0.8rem;">
+                                                ${m.source} → ${m.destination} (${m.mode})
+                                            </div>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            ` : ''}
+                            
+                            ${volumeMounts.length > 0 ? `
+                                <h5 style="margin: 0.5rem 0; font-size: 0.9rem;">Volume Mounts</h5>
+                                <ul style="list-style: none; padding: 0; margin: 0;">
+                                    ${volumeMounts.map(m => `
+                                        <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
+                                            <div style="font-weight: 500;">${m.container}</div>
+                                            <div style="margin-left: 1rem; font-size: 0.8rem;">
+                                                ${m.source} → ${m.destination} (${m.mode})
+                                            </div>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            ` : ''}
+                            
+                            ${resources.mounts.length === 0 ? 
+                                '<p style="font-style: italic; color: var(--text-secondary);">No mounts</p>' : 
+                            ''}
                         </div>
-                    ` : ''}
-                    
-                    ${resources.images.length > 0 ? `
-                        <div>
-                            <h4>Images (${resources.images.length})</h4>
-                            <ul style="list-style: none; padding: 0; margin: 0; max-height: 150px; overflow-y: auto;">
-                                ${resources.images.map(img => `
+                    </div>
+                    <div class="resource-section">
+                        <h4>Networks (${resources.networks.length})</h4>
+                        <ul style="list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto;">
+                            ${resources.networks.length > 0
+                                ? resources.networks.map(n => `
                                     <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
-                                        ${img.name} 
-                                        <span style="color: var(--text-secondary);">• ${img.size} MB</span>
-                                        <span style="color: var(--text-secondary);">• ${img.created}</span>
+                                        ${n.name}
+                                        ${n.external ? `<span style="color: var(--accent-warning)"> • external</span>` : ''}
                                     </li>
-                                `).join('')}
-                            </ul>
-                        </div>
-                    ` : ''}
+                                `).join('')
+                                : '<li style="font-style: italic; color: var(--text-secondary);">No custom networks</li>'
+                            }
+                        </ul>
+                    </div>
                 </div>
-            ` : ''}
-        `;
-    }).catch(error => {
-        const detailsContent = modal.querySelector('.stack-details-content');
-        detailsContent.innerHTML = `<p style="color: var(--accent-error);">Failed to load stack resources</p>`;
-    });
+                
+                ${resources.envFile || resources.images.length > 0 ? `
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                        ${resources.envFile ? `
+                            <div style="margin-bottom: 1rem;">
+                                <h4>Environment Configuration</h4>
+                                <p style="color: var(--text-secondary); font-size: 0.85rem;">
+                                    .env file: ${resources.envFile}
+                                    <button class="btn btn-primary btn-sm" style="margin-left: 1rem;" onclick="document.querySelectorAll('.logs-modal').forEach(m => m.remove()); openEnvInEditor('${resources.envFile}')">
+                                        Edit .env
+                                    </button>
+                                </p>
+                            </div>
+                        ` : ''}
+                        
+                        ${resources.images.length > 0 ? `
+                            <div>
+                                <h4>Images (${resources.images.length})</h4>
+                                <ul style="list-style: none; padding: 0; margin: 0; max-height: 150px; overflow-y: auto;">
+                                    ${resources.images.map(img => `
+                                        <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
+                                            ${img.name} 
+                                            <span style="color: var(--text-secondary);">• ${img.size} MB</span>
+                                            <span style="color: var(--text-secondary);">• ${img.created}</span>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+                    </div>
+                ` : ''}
+            `;
+        })
+        .catch(error => {
+            console.error('Failed to load stack resources:', error);
+            const detailsContent = modal.querySelector('.stack-details-content');
+            detailsContent.innerHTML = `
+                <p style="color: var(--accent-error);">Failed to load stack resources</p>
+                <p style="color: var(--text-secondary); font-size: 0.85rem;">${error.message || 'Unknown error'}</p>
+            `;
+        });
 }
 // Add this helper function to open env file in editor
 function openEnvInEditor(envFile) {
-    // Switch to config tab and env subtab
+    // Switch to config tab first
     switchTab('config');
+    
     setTimeout(() => {
+        // Switch to env subtab (not compose!)
         switchSubTab('env');
-        // Set the env file in the dropdown and load it
-        const envSelect = document.getElementById('env-files');
-        if (envSelect) {
-            // Add the option if it doesn't exist
-            let optionExists = false;
-            for (let i = 0; i < envSelect.options.length; i++) {
-                if (envSelect.options[i].value === envFile) {
-                    optionExists = true;
-                    break;
+        
+        // Wait a bit more for the env files to load
+        setTimeout(() => {
+            const envSelect = document.getElementById('env-files');
+            if (envSelect) {
+                // Check if the file is already in the dropdown
+                let found = false;
+                for (let i = 0; i < envSelect.options.length; i++) {
+                    if (envSelect.options[i].value === envFile) {
+                        envSelect.value = envFile;
+                        currentEnvFile = envFile;
+                        found = true;
+                        loadEnvFile(); // Load the content
+                        break;
+                    }
+                }
+                
+                if (!found) {
+                    // If not in dropdown, first scan for env files
+                    console.log('Env file not in dropdown, scanning for env files...');
+                    
+                    // Store the pending env file
+                    sessionStorage.setItem('pendingEnvFile', envFile);
+                    
+                    // Scan for env files
+                    scanEnvFiles();
                 }
             }
-            
-            if (!optionExists) {
-                const option = document.createElement('option');
-                option.value = envFile;
-                option.textContent = envFile;
-                envSelect.appendChild(option);
-            }
-            
-            envSelect.value = envFile;
-            loadEnvFile();
-        }
+        }, 100);
     }, 100);
 }
 // New helper functions
 async function getStackResources(stackName) {
     try {
-        const [volumesResponse, networksResponse] = await Promise.all([
-            fetch('/api/volumes'),
-            fetch('/api/networks')
+        // Get all resources in parallel
+        const [volumes, networks, containers, images, envFiles] = await Promise.all([
+            fetch('/api/volumes').then(r => r.json()),
+            fetch('/api/networks').then(r => r.json()),
+            fetch('/api/containers').then(r => r.json()),
+            fetch('/api/images').then(r => r.json()),
+            fetch('/api/env/files').then(r => r.json())
         ]);
 
-        const volumes = await volumesResponse.json();
-        const networks = await networksResponse.json();
+        // Filter containers for this stack
+        const stackContainers = containers.filter(c => 
+            window.extractStackName(c) === stackName
+        );
 
-        // Filter resources that belong to this stack
+        // Get mount information - including bind mounts
+        const allMounts = [];
+        const volumeMounts = {};
+        
+        // Fetch detailed container info to get mounts
+        for (const container of stackContainers) {
+            try {
+                const response = await fetch(`/api/container/${container.id}/inspect`);
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.data.Mounts) {
+                    data.data.Mounts.forEach(mount => {
+                        // Add all mounts to our list
+                        allMounts.push({
+                            container: container.name,
+                            type: mount.Type,
+                            source: mount.Source,
+                            destination: mount.Destination,
+                            mode: mount.Mode || 'rw'
+                        });
+                        
+                        // Track volume mounts separately
+                        if (mount.Type === 'volume') {
+                            const volumeName = mount.Name;
+                            if (!volumeMounts[volumeName]) {
+                                volumeMounts[volumeName] = [];
+                            }
+                            volumeMounts[volumeName].push({
+                                container: container.name,
+                                destination: mount.Destination,
+                                mode: mount.Mode || 'rw'
+                            });
+                        }
+                    });
+                }
+            } catch (e) {
+                console.warn(`Failed to get mounts for container ${container.name}:`, e);
+            }
+        }
+
+        // Filter volumes that belong to this stack
         const stackVolumes = volumes.filter(v => {
             return v.name.startsWith(stackName + '_') || 
                    (v.labels && v.labels['com.docker.compose.project'] === stackName);
         });
 
+        // Filter networks
         const stackNetworks = networks.filter(n => {
             if (['bridge', 'host', 'none'].includes(n.name)) return false;
             return n.name.startsWith(stackName + '_') || 
@@ -2214,138 +2497,55 @@ async function getStackResources(stackName) {
                    (n.labels && n.labels['com.docker.compose.project'] === stackName);
         });
 
-        // Try to find .env file for this stack
-        let envFile = null;
-        try {
-            const envFilesResponse = await fetch('/api/env/files');
-            const envFilesData = await envFilesResponse.json();
-            const envFiles = envFilesData.files || [];
-            
-            // Look for .env file in stack directory
-            envFile = envFiles.find(f => {
-                // Check if the env file path contains the stack name
-                return f.includes(`/${stackName}/.env`) || 
-                       f.includes(`${stackName}/.env`) ||
-                       f.endsWith(`/${stackName}/.env`);
-            });
-        } catch (e) {
-            console.error('Failed to check for .env file:', e);
-        }
+        // Find .env file
+        const envFile = (envFiles.files || []).find(f => {
+            return f.includes(`/${stackName}/.env`) || 
+                   f.includes(`${stackName}/.env`) ||
+                   f.endsWith(`/${stackName}/.env`);
+        });
 
-        // Get stack images
-        let stackImages = new Set();
-        try {
-            const imagesResponse = await fetch('/api/images');
-            const allImages = await imagesResponse.json();
-            
-            // Get containers for this stack
-            const containersResponse = await fetch('/api/containers');
-            const containers = await containersResponse.json();
-            const stackContainers = containers.filter(c => extractStackName(c) === stackName);
-            
-            // Find images used by this stack
-            stackContainers.forEach(container => {
-                if (container.image) {
-                    const matchingImage = allImages.find(img => 
-                        img.tags.includes(container.image) || 
-                        container.image.includes(img.name.split(':')[0])
-                    );
-                    if (matchingImage) {
-                        stackImages.add({
-                            name: matchingImage.name,
-                            size: matchingImage.size,
-                            created: matchingImage.created
-                        });
-                    }
+        // Get images used by stack
+        const stackImages = [];
+        const imageSet = new Set();
+        
+        stackContainers.forEach(container => {
+            if (container.image) {
+                const matchingImage = images.find(img => 
+                    img.tags.includes(container.image) || 
+                    container.image.includes(img.name.split(':')[0])
+                );
+                if (matchingImage && !imageSet.has(matchingImage.name)) {
+                    imageSet.add(matchingImage.name);
+                    stackImages.push({
+                        name: matchingImage.name,
+                        size: matchingImage.size,
+                        created: matchingImage.created
+                    });
                 }
-            });
-        } catch (e) {
-            console.error('Failed to get stack images:', e);
-        }
+            }
+        });
 
         return {
             volumes: stackVolumes.map(v => ({
                 name: v.name.replace(stackName + '_', ''),
                 driver: v.driver,
                 mountpoint: v.mountpoint,
-                in_use: v.in_use
+                in_use: v.in_use,
+                mounts: volumeMounts[v.name] || []
             })),
+            mounts: allMounts, // All mounts including bind mounts
             networks: stackNetworks.map(n => ({
                 name: n.name.replace(stackName + '_', ''),
                 driver: n.driver,
                 external: n.external || false
             })),
             envFile: envFile,
-            images: Array.from(stackImages)
+            images: stackImages
         };
     } catch (error) {
         console.error('Error getting stack resources:', error);
-        return { volumes: [], networks: [], envFile: null, images: [] };
+        throw error;
     }
-}
-
-function toggleStackDetails(stackName) {
-    const details = document.getElementById(`stack-details-${stackName}`);
-    const toggle = document.getElementById(`stack-toggle-${stackName}`);
-    
-    if (details.style.display === 'none') {
-        details.style.display = 'block';
-        toggle.textContent = 'Details ▲';
-    } else {
-        details.style.display = 'none';
-        toggle.textContent = 'Details ▼';
-    }
-}
-
-
-function cleanupStackResources(stackName) {
-    if (!confirm(`This will remove unused volumes and networks from compose file "${stackName}". Continue?`)) {
-        return;
-    }
-    
-    setLoading(true, 'Cleaning up compose resources...');
-    
-    // This would call a new endpoint to cleanup stack-specific resources
-    // For now, we'll just show a message
-    showMessage('info', 'Compose cleanup not implemented yet');
-    setLoading(false);
-}
-
-function findComposeFileForStack(containers) {
-    if (!containers || containers.length === 0) return null;
-    
-    const stackName = extractStackName(containers[0]);
-    console.log('Finding compose file:', stackName);
-    
-    // Try to extract compose file directly from container
-    for (const container of containers) {
-        if (container.compose_file) {
-            console.log('Container has compose_file property:', container.compose_file);
-            
-            // If it already has a path with ../, use it exactly as is
-            if (container.compose_file.startsWith('../')) {
-                return container.compose_file;
-            }
-            
-            // If the compose_file doesn't include the stack name, add it
-            if (!container.compose_file.includes('/') && stackName) {
-                const fullPath = `${stackName}/${container.compose_file}`;
-                console.log('Converting to full path:', fullPath);
-                return fullPath;
-            }
-            
-            return container.compose_file;
-        }
-    }
-    
-    // No compose file found, construct a default path
-    if (stackName) {
-        const defaultPath = `${stackName}/docker-compose.yaml`;
-        console.log('Using default path:', defaultPath);
-        return defaultPath;
-    }
-    
-    return null;
 }
 
 // Improved openComposeInEditor function that tries multiple file variants
@@ -2360,37 +2560,42 @@ function openComposeInEditor(composeFile) {
     // Clear any previous pending file immediately
     localStorage.removeItem('pendingComposeFile');
     
-    // Switch to config tab
+    // Store the file to load after switching tabs
+    localStorage.setItem('pendingComposeFile', composeFile);
+    
+    // Switch to config tab and compose subtab
     switchTab('config');
     
-    // For immich specifically (since we've had issues with it)
-    if (composeFile.includes('immich')) {
-        console.log('Special handling for immich compose file');
+    // Use setTimeout to ensure the tab switch completes
+    setTimeout(() => {
+        // Switch to compose subtab
+        switchSubTab('compose');
         
-        // Try both yml and yaml extensions
-        const basePathWithoutExt = composeFile.substring(0, composeFile.lastIndexOf('.'));
-        const ymlPath = basePathWithoutExt + '.yml';
-        const yamlPath = basePathWithoutExt + '.yaml';
-        
-        // Store path for later use
-        localStorage.setItem('pendingComposeFile', composeFile);
-        
-        // Try all potential paths directly
-        directLoadCompose(composeFile)
-            .catch(() => directLoadCompose(ymlPath))
-            .catch(() => directLoadCompose(yamlPath))
-            .catch(() => {
-                // If all direct loads fail, fall back to standard loading
-                console.log('All direct loads failed, falling back to dropdown selection');
-                loadComposeFiles();
-            });
-    } else {
-        // Standard path for other stacks
-        localStorage.setItem('pendingComposeFile', composeFile);
-        loadComposeFiles();
-    }
+        // Wait a bit more for the compose files to load
+        setTimeout(() => {
+            const select = document.getElementById('compose-files');
+            if (select) {
+                // Check if the file is already in the dropdown
+                let found = false;
+                for (let i = 0; i < select.options.length; i++) {
+                    if (select.options[i].value === composeFile) {
+                        select.value = composeFile;
+                        currentComposeFile = composeFile;
+                        found = true;
+                        loadCompose(); // Load the content
+                        break;
+                    }
+                }
+                
+                if (!found) {
+                    // If file not in dropdown, try loading compose files first
+                    console.log('File not in dropdown, loading compose files...');
+                    loadComposeFiles();
+                }
+            }
+        }, 100);
+    }, 100);
 }
-
 // Try each variant in sequence until one works
 function tryNextVariant(variants, index) {
     if (index >= variants.length) {
@@ -2496,6 +2701,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize theme
     loadTheme();
+    loadDockerHosts();
     // Set stack as default grouping
     const groupFilter = document.getElementById('group-filter');
     const groupFilterMobile = document.getElementById('group-filter-mobile');

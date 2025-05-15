@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  composr-agent:
+    build: .
+    container_name: composr-agent
+    ports:
+      - "5005:5005"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./projects:/app/projects
+      - ./metadata:/app/metadata
+    environment:
+      - COMPOSE_DIR=/app/projects
+      - METADATA_DIR=/app/metadata
+      - DEBUG=false
+    restart: unless-stopped
+    networks:
+      - composr-net
+
+networks:
+  composr-net:
+    driver: bridge
