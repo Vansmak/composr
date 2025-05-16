@@ -3,7 +3,7 @@ FROM python:3.9-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies including Docker CLI and Docker Compose
+# Install system dependencies including Docker CLI
 RUN apt-get update && apt-get install -y \
     apt-transport-https \
     ca-certificates \
@@ -31,7 +31,9 @@ RUN apt-get update && apt-get install -y \
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    # Make sure Werkzeug is installed for the combined app
+    && pip install werkzeug
 
 # Copy application files
 COPY . .
@@ -43,7 +45,7 @@ RUN mkdir -p /app/projects /app/metadata
 ENV PYTHONUNBUFFERED=1
 ENV COMPOSE_DIR=/app/projects
 ENV METADATA_DIR=/app/metadata
-ENV FLASK_APP=composr_agent.py
+ENV DOCKER_SOCKET=unix:///var/run/docker.sock
 
 # Expose API port
 EXPOSE 5005
@@ -52,5 +54,5 @@ EXPOSE 5005
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:5005/health || exit 1
 
-# Command to run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:5005", "--workers", "4", "--threads", "2", "--timeout", "120", "app:app"]
+# Run the combined application instead of just composr_agent.py
+CMD ["python", "docker_api_compatibility.py"]

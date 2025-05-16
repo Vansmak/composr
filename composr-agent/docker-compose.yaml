@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   composr-agent:
     build: .
@@ -7,17 +5,18 @@ services:
     ports:
       - "5005:5005"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./projects:/app/projects
       - ./metadata:/app/metadata
     environment:
+      - PYTHONUNBUFFERED=1
       - COMPOSE_DIR=/app/projects
       - METADATA_DIR=/app/metadata
-      - DEBUG=false
-    restart: unless-stopped
+      - DOCKER_SOCKET=unix:///var/run/docker.sock
     networks:
       - composr-net
+    restart: unless-stopped
 
 networks:
-  composr-net:
-    driver: bridge
+   composr-net:
+      driver: bridge
