@@ -3,7 +3,7 @@ version: '3'
 services:
   composr:
     build: .
-    container_name: composr-dev
+    container_name: composr-local
     ports:
       - "5003:5003"
     volumes:
