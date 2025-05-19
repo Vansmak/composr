@@ -1,0 +1,18 @@
+services:
+  composr:
+    image: vansmak/composr:latest
+    container_name: composr
+    ports:
+      - "5003:5003"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/joe/docker:/app/projects  # Mounting your docker folder as /app/projects
+      - /home/joe/config/composr:/app/data
+      - /home/joe/config/caddy:/caddy_config
+    environment:
+      - DEBUG=false
+      - COMPOSE_DIR=/app/projects
+      - METADATA_DIR=/app/data
+      - CONTAINER_METADATA_FILE=/app/data/metadata.json
+      - CADDY_CONFIG_DIR=/caddy_config
+    restart: unless-stopped
