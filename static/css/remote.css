@@ -10,23 +10,13 @@
     border-radius: 0.5rem;
 }
 
-.host-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--border-color);
-}
+
 
 .host-item:last-child {
     border-bottom: none;
 }
 
-.host-info {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-}
+
 
 .host-status.connected {
     color: var(--success-color);
@@ -78,4 +68,85 @@
 
 .connection-help ul {
     margin: 0.5rem 0 0 1.5rem;
+}
+/* Add to remote.css */
+.instance-select {
+    width: 100%;
+    padding: 8px;
+    background-color: var(--card-background);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin-top: 0.5rem;
+}
+/* Fix dropdown options styling */
+.instance-select,
+#composr-instance-selector {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    outline: none;
+}
+
+/* Make sure the options match the theme */
+.instance-select option,
+#composr-instance-selector option,
+select option {
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    padding: 8px !important;
+}
+
+/* Fix dropdown arrow color */
+.instance-select::-ms-expand,
+#composr-instance-selector::-ms-expand {
+    background-color: transparent;
+    color: var(--text-primary);
+}
+
+/* Remove any browser-specific styling */
+select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    padding-right: 1.5rem;
+}
+/* Style the bookmarks list */
+.host-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s;
+}
+
+.host-item:hover {
+    background-color: var(--hover-color, rgba(255, 255, 255, 0.05));
+}
+
+.host-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.host-info strong {
+    font-size: 1.1rem;
+}
+
+.host-info span {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.host-actions {
+    display: flex;
+    gap: 0.5rem;
 }

@@ -1,0 +1,167 @@
+/* Mode toggle */
+.caddy-mode-toggle {
+    display: flex;
+    margin-bottom: 15px;
+}
+
+.caddy-mode-btn {
+    padding: 8px 15px;
+    background: var(--btn-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin-right: 10px;
+    cursor: pointer;
+    color: var(--text-color);
+}
+
+.caddy-mode-btn.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+/* Editor modes */
+.caddy-editor-mode {
+    display: none;
+}
+
+.caddy-editor-mode.active {
+    display: block;
+}
+
+/* Sites list */
+.site-list-container {
+    margin-bottom: 20px;
+}
+
+.site-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.sites-list {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.site-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+}
+
+.site-item:last-child {
+    border-bottom: none;
+}
+
+.site-item.active {
+    background: rgba(var(--primary-rgb), 0.1);
+}
+
+/* Site editor */
+.site-editor {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 15px;
+    background: var(--card-bg);
+    margin-bottom: 20px;
+    display: none;
+}
+
+/* Form styling */
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--input-bg);
+    color: var(--text-color);
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+/* Text editor */
+#caddy-editor {
+    width: 100%;
+    height: 400px;
+    font-family: monospace;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--input-bg);
+    color: var(--text-color);
+    margin-bottom: 15px;
+}
+
+/* Action buttons */
+.editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 15px;
+}
+/* Container popup */
+.container-popup {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.popup-content {
+    background: var(--card-bg);
+    border-radius: 4px;
+    padding: 20px;
+    width: 80%;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.container-list {
+    margin: 15px 0;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.container-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.container-item:last-child {
+    border-bottom: none;
+}

@@ -439,8 +439,7 @@ function renderContainers(containers) {
             renderContainersByStack(filteredContainers);
         } else if (group === 'tag' || sort === 'tag') {
             renderContainersByTag(filteredContainers);
-        } else if (group === 'host') {
-            renderContainersByHost(filteredContainers);
+       
         
         } else {
             // Sort containers
@@ -660,27 +659,20 @@ async function refreshContainers(sortKey = null, sortDirection = 'asc') {
         
         // Use provided sort parameters or fall back to dropdown value
         const sort = sortKey || document.getElementById('sort-filter').value || document.getElementById('sort-filter-mobile').value || 'name';
-        
-        // NOW you can use these variables in the URL
-        let url;
-        if (group === 'host') {
-            // Get containers from all hosts
-            url = `/api/containers/all?search=${encodeURIComponent(search)}&status=${status}&tag=${encodeURIComponent(tag)}&stack=${encodeURIComponent(stack)}&sort=${sort}&direction=${sortDirection}&nocache=${Date.now()}`;
-        } else {
-            // Get containers from current host
-            url = `/api/containers?search=${encodeURIComponent(search)}&status=${status}&tag=${encodeURIComponent(tag)}&stack=${encodeURIComponent(stack)}&sort=${sort}&direction=${sortDirection}&nocache=${Date.now()}`;
-        }
-        
+
+        // Simplified URL creation - always use standard endpoint
+        const url = `/api/containers?search=${encodeURIComponent(search)}&status=${status}&tag=${encodeURIComponent(tag)}&stack=${encodeURIComponent(stack)}&sort=${sort}&direction=${sortDirection}&nocache=${Date.now()}`;
+
         const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`HTTP error ${response.status}`);
         }
-        
+
         const containers = await response.json();
         renderContainers(containers);
-        
+
         loadSystemStats();
-        
+
         if (containers.some(c => c.status === 'running')) {
             if (refreshTimer) {
                 clearTimeout(refreshTimer);
@@ -689,7 +681,7 @@ async function refreshContainers(sortKey = null, sortDirection = 'asc') {
                 refreshContainers();
             }, 30000);
         }
-        
+
         // Add batch actions for table view in batch mode
         if (tableView && tableView.classList.contains('active') && tableView.classList.contains('batch-mode')) {
             // We're in table view and batch mode - make sure batch actions are visible

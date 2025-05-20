@@ -16,16 +16,13 @@ from functions import (
 )
 from remote_hosts import host_manager
 
-from remote_hosts import host_manager
-import time
-
 # Wait for local client to be ready
 start_time = time.time()
 while host_manager.get_client('local') is None and time.time() - start_time < 5:
     time.sleep(0.1)
 
 # Add after imports
-__version__ = "1.4.1"
+__version__ = "1.5.0"
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -37,6 +34,29 @@ METADATA_DIR = os.environ.get('METADATA_DIR', '/app')
 CONTAINER_METADATA_FILE = os.path.join(METADATA_DIR, 'container_metadata.json')
 CADDY_CONFIG_DIR = os.getenv('CADDY_CONFIG_DIR', '')
 CADDY_CONFIG_FILE = os.getenv('CADDY_CONFIG_FILE', 'Caddyfile')
+
+# Add hosts file path AFTER METADATA_DIR is defined
+HOSTS_FILE = os.path.join(METADATA_DIR, 'host_bookmarks.json')
+
+# Simple functions to load/save hosts
+def load_hosts():
+    try:
+        if os.path.exists(HOSTS_FILE):
+            with open(HOSTS_FILE, 'r') as f:
+                return json.load(f)
+        return {"local": {"url": "", "connected": True}}
+    except Exception as e:
+        logger.error(f"Failed to load hosts: {e}")
+        return {"local": {"url": "", "connected": True}}
+
+def save_hosts(hosts):
+    try:
+        with open(HOSTS_FILE, 'w') as f:
+            json.dump(hosts, f)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save hosts: {e}")
+        return False
 
 # Ensure metadata directory exists
 os.makedirs(os.path.dirname(CONTAINER_METADATA_FILE), exist_ok=True)
@@ -71,13 +91,47 @@ client = host_manager.get_client()
 def index():
     return render_template('index.html')
 
-# Update API endpoints to use host_manager
+# Basic API endpoints for host bookmarks
 @app.route('/api/docker/hosts')
 def get_docker_hosts():
-    return jsonify({
-        'hosts': host_manager.get_hosts_status(),
-        'current': host_manager.current_host
-    })
+    hosts = load_hosts()
+    return jsonify({'hosts': hosts, 'current': 'local'})
+
+@app.route('/api/docker/hosts/add', methods=['POST'])
+def add_docker_host():
+    try:
+        data = request.json
+        name = data.get('name')
+        url = data.get('url')
+        
+        if not name or not url:
+            return jsonify({'status': 'error', 'message': 'Name and URL are required'})
+        
+        hosts = load_hosts()
+        hosts[name] = {'url': url, 'connected': False}
+        save_hosts(hosts)
+        
+        return jsonify({'status': 'success', 'message': f'Added host {name}'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/docker/hosts/remove', methods=['POST'])
+def remove_docker_host():
+    try:
+        data = request.json
+        name = data.get('name')
+        
+        if name == 'local':
+            return jsonify({'status': 'error', 'message': 'Cannot remove local host'})
+        
+        hosts = load_hosts()
+        if name in hosts:
+            del hosts[name]
+            save_hosts(hosts)
+        
+        return jsonify({'status': 'success', 'message': f'Removed host {name}'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
 
 @app.route('/api/docker/switch-host', methods=['POST'])
 def switch_docker_host():
@@ -1156,51 +1210,9 @@ def remove_image(id):
         logger.error(f"Failed to remove image {id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
     
-@app.route('/api/docker/hosts/add', methods=['POST'])
-def add_docker_host():
-    """Add a new Docker host"""
-    try:
-        data = request.json
-        name = data.get('name')
-        url = data.get('url')
-        group = data.get('group')
-        
-        if not name or not url:
-            return jsonify({'status': 'error', 'message': 'Name and URL are required'})
-        
-        host_manager.add_host(name, url, group)
-        
-        return jsonify({
-            'status': 'success',
-            'message': f'Added host {name}'
-        })
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        })
 
-@app.route('/api/docker/hosts/remove', methods=['POST'])
-def remove_docker_host():
-    """Remove a Docker host"""
-    try:
-        data = request.json
-        name = data.get('name')
-        
-        if not name:
-            return jsonify({'status': 'error', 'message': 'Host name is required'})
-        
-        host_manager.remove_host(name)
-        
-        return jsonify({
-            'status': 'success',
-            'message': f'Removed host {name}'
-        })
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        })
+
+
 
 @app.route('/api/docker/hosts/test', methods=['POST'])
 def test_docker_host():

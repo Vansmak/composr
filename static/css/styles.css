@@ -210,7 +210,8 @@ header {
     color: var(--text-primary);
 }
 
-.filter-select, .theme-select {
+/* Add to your remote.css or styles.css file */
+.filter-select, .theme-select, .instance-select {
     padding: 0.5rem;
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -220,6 +221,12 @@ header {
     outline: none;
 }
 
+/* Fix for select options to match the theme */
+.filter-select option, .theme-select option, .instance-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 0.5rem;
+}
 .filter-input:focus, 
 .filter-select:focus {
     border-color: var(--accent-primary);
@@ -660,7 +667,27 @@ header {
     border-radius: 8px;
     cursor: pointer;
 }
+/* Fix for toggle view button */
+#toggle-view, 
+.btn-icon {
+    padding: 0.4rem 0.6rem;
+    font-size: 1.2rem;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 40px;
+    text-align: center;
+}
 
+#toggle-view:hover, 
+.btn-icon:hover {
+    background: var(--accent-primary);
+    color: white;
+    transform: translateY(-1px);
+}
 /* === Batch Mode === */
 #toggle-batch-mode,
 .table-controls-row #toggle-batch-mode,

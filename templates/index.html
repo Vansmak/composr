@@ -67,6 +67,11 @@
                     <option value="nord">Nord</option>
                     <option value="light-breeze">Light Breeze</option>
                 </select>
+                <select id="composr-instance-selector" class="instance-select">
+                    <option value="">Current Instance</option>
+                    <!-- Other instances will be populated by JavaScript -->
+                </select>
+                <button id="add-instance-btn" class="btn btn-primary" onclick="showAddInstanceModal()">Add Instance</button>
             </div>
         </header>
         
@@ -107,9 +112,7 @@
                     <option value="">Tag</option>
                 </select>
                 
-                <select id="host-filter" class="filter-select">
-                    <option value="">Host</option>
-                </select>
+                
                 
                 <select id="status-filter" class="filter-select">
                     <option value="">Status</option>
@@ -121,7 +124,7 @@
                     <option value="none">Group by</option>
                     <option value="stack">Compose</option>
                     <option value="tag">Tag</option>
-                    <option value="host">Host</option>
+                    
                 </select>
                 
                 <select id="sort-filter" class="filter-select">
@@ -170,7 +173,7 @@
                             <th onclick="sortTable('name')">Name</th>
                             <th>Stack</th>
                             <th>Tags</th>
-                            <th>Host</th>
+                            
                             <th onclick="sortTable('status')">Status</th>
                             <th onclick="sortTable('uptime')">Uptime</th>
                             <th onclick="sortTable('cpu')">CPU</th>
@@ -183,52 +186,48 @@
             </div>
         </div>
         <div id="hosts-tab" class="tab-content">
-                <div class="hosts-management">
-                    <h3>Docker Host Management</h3>
-                    
-                    <!-- Current hosts list -->
-                    <div class="hosts-list">
-                        <h4>Configured Hosts</h4>
-                        <div id="hosts-list-content">
-                            <!-- Will be populated by JavaScript -->
-                        </div>
-                    </div>
-                    
-                    <!-- Add new host form -->
-                    <div class="add-host-form">
-                        <h4>Add New Host</h4>
-                        <div class="form-group">
-                            <label>Name:</label>
-                            <input type="text" id="new-host-name" placeholder="e.g., server1">
-                        </div>
-                        <div class="form-group">
-                            <label>Connection URL:</label>
-                            <input type="text" id="new-host-url" placeholder="e.g., tcp://192.168.1.100:2375">
-                        </div>
-                        <div class="form-group">
-                            <label>Group (optional):</label>
-                            <input type="text" id="new-host-group" placeholder="e.g., production">
-                        </div>
-                        <button class="btn btn-primary" onclick="addDockerHost()">Add Host</button>
-                    </div>
-                    
-                    <!-- Connection help -->
-                    <div class="connection-help">
-                        <h4>Connection Types</h4>
-                        <ul>
-                            <li><strong>Agent:</strong> http://hostname:5005 (Composr Agent)</li>
-                            <li><strong>TCP:</strong> tcp://hostname:2375 (unsecured)</li>
-                            <li><strong>TLS:</strong> tcp://hostname:2376 (with certificates)</li>
-                            <li><strong>SSH:</strong> ssh://user@hostname</li>
-                            <li><strong>Local Socket:</strong> unix:///var/run/docker.sock</li>
-                        </ul>
-                        <div class="warning-notice">
-                            <p><strong>Note:</strong> Multi-host management is still in development. The Agent connection type is recommended for production use as it's more secure than exposing Docker directly.</p>
-                            <p><strong>Important:</strong> Limited or no support is available for connection types other than the Composr Agent. For best results and future compatibility, use the Agent connection method.</p>
-                        </div>
+            <div class="hosts-management">
+                <h3>Composr Instance Bookmarks</h3>
+                
+                <!-- Current hosts list - leave structure, just update text -->
+                <div class="hosts-list">
+                    <h4>Saved Instances</h4>
+                    <div id="hosts-list-content">
+                        <!-- Will be populated by JavaScript -->
                     </div>
                 </div>
+                
+                <!-- Add new host form - update text to reflect bookmarks -->
+                <div class="add-host-form">
+                    <h4>Add New Instance</h4>
+                    <div class="form-group">
+                        <label>Name:</label>
+                        <input type="text" id="new-host-name" placeholder="e.g., Home Server">
+                    </div>
+                    <div class="form-group">
+                        <label>URL:</label>
+                        <input type="text" id="new-host-url" placeholder="e.g., http://192.168.1.100:5003">
+                    </div>
+                    <div class="form-group">
+                        <label>Group (optional):</label>
+                        <input type="text" id="new-host-group" placeholder="e.g., production">
+                    </div>
+                    <button class="btn btn-primary" onclick="addDockerHost()">Add Instance</button>
+                </div>
+                
+                <!-- Update help content -->
+                <div class="connection-help">
+                    <h4>Bookmark Information</h4>
+                    <p>Add bookmarks to quickly access other Composr instances on your network.</p>
+                    <ul>
+                        <li><strong>URL Format:</strong> http://hostname:5003 (Default Composr port)</li>
+                        <li><strong>Note:</strong> Make sure the other Composr instance is accessible from this device.</li>
+                        <li><strong>Tip:</strong> Use the name that helps you identify each instance (e.g., "Home Server", "Office", etc.)</li>
+                    </ul>
+                </div>
             </div>
+        </div>
+    </div>
         <!-- Config Tab with subtabs -->
         <div id="config-tab" class="tab-content">
             <div class="config-subtabs">

@@ -256,11 +256,6 @@ function renderSingleContainerAsTableRow(container, tableBody) {
         <td>${extractStackName(container)}</td>
         <td>${tagsHtml}</td>
         <td>
-            <span class="host-badge ${container.host === 'local' ? 'host-local' : 'host-remote'}">
-                ${container.host || 'local'}
-            </span>
-        </td>
-        <td>
             <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
         </td>
         <td>
@@ -369,24 +364,7 @@ function moveControlsToTable() {
     }
     controlsRow.appendChild(tagCell);
     
-    // Add host filter in the fifth cell
-    const hostCell = document.createElement('td');
-    const hostFilter = document.getElementById('host-filter');
-    if (hostFilter) {
-        const clone = hostFilter.cloneNode(true);
-        clone.removeAttribute('id');
-        clone.addEventListener('change', () => {
-            hostFilter.value = clone.value;
-            hostFilter.dispatchEvent(new Event('change'));
-        });
-        
-        hostFilter.addEventListener('change', () => {
-            clone.value = hostFilter.value;
-        });
-        
-        hostCell.appendChild(clone);
-    }
-    controlsRow.appendChild(hostCell);
+    
     
     // Add status filter in the sixth cell
     const statusCell = document.createElement('td');
