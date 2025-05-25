@@ -346,7 +346,15 @@ header {
     font-size: 0.85rem;
     color: var(--text-secondary);
 }
-
+/* Add this single rule to your CSS */
+.config-subtabs {
+    max-width: 350px; /* Adjust this value to your preference */
+}
+/* Optional additional rule */
+#config-tab, #images-tab {
+    max-width: 1200px;
+    margin: 0 auto;
+}
 .subtab {
     padding: 0.5rem 1rem;
     border: none;
@@ -1281,4 +1289,483 @@ body.table-view-active #batch-actions,
 #images-tab.active ~ .filter-controls,
 #config-tab.active ~ .filter-controls {
     display: none;
+}
+/* Add these ONLY new styles to your styles.css - no duplicates */
+
+/* === Success/Error Modal Sections === */
+.success-section {
+    background: #d4edda !important;
+    border: 1px solid #c3e6cb;
+    color: #155724 !important;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.error-section {
+    background: #f8d7da !important;
+    border: 1px solid #f5c6cb;
+    color: #721c24 !important;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+/* Dark theme support for modal sections */
+[data-theme="refined-dark"] .success-section,
+[data-theme="night-owl"] .success-section,
+[data-theme="nord"] .success-section {
+    background: rgba(40, 167, 69, 0.15) !important;
+    border: 1px solid rgba(40, 167, 69, 0.3);
+    color: #28a745 !important;
+}
+
+[data-theme="refined-dark"] .error-section,
+[data-theme="night-owl"] .error-section,
+[data-theme="nord"] .error-section {
+    background: rgba(220, 53, 69, 0.15) !important;
+    border: 1px solid rgba(220, 53, 69, 0.3);
+    color: #dc3545 !important;
+}
+
+/* Error message code blocks in modals */
+.error-section div[style*="monospace"] {
+    background: rgba(0, 0, 0, 0.2) !important;
+    color: inherit;
+    max-height: 100px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    padding: 0.5rem;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 0.85rem;
+    word-break: break-word;
+    margin-top: 0.5rem;
+}
+
+/* Modal header improvements */
+.logs-modal .modal-content h4 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 0.5rem 0;
+}
+
+/* Enhanced loading spinner - only if not already present */
+.loading-spinner::before {
+    content: '';
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--accent-primary);
+    border-top: 2px solid transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 1rem;
+}
+
+/* Spin animation - only if not already present */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Enhanced button hover effects - only if not already present or different */
+.btn.btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.btn.btn-success:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Responsive modal improvements */
+@media (max-width: 768px) {
+    .logs-modal {
+        width: 95%;
+        max-width: none;
+        margin: 1rem;
+        transform: translate(-50%, -50%);
+    }
+    
+    .logs-modal .actions {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .logs-modal .actions .btn {
+        width: 100%;
+        text-align: center;
+    }
+    
+    .success-section,
+    .error-section {
+        padding: 0.75rem;
+    }
+    
+    .success-section h4,
+    .error-section h4 {
+        font-size: 1rem;
+    }
+}
+
+.backup-management {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.backup-sections {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    margin-bottom: 2rem;
+}
+
+.backup-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.backup-section h3 {
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+    font-size: 1.2rem;
+}
+
+.section-description {
+    color: var(--text-secondary);
+    margin-bottom: 1.5rem;
+    font-size: 0.95rem;
+}
+
+/* Backup Preview Card */
+.backup-preview-card {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.backup-preview-card h4 {
+    margin: 0 0 1rem 0;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.backup-preview-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.backup-stat {
+    text-align: center;
+    padding: 0.75rem;
+    background: var(--bg-primary);
+    border-radius: 6px;
+}
+
+.backup-stat-number {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--accent-primary);
+}
+
+.backup-stat-label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.backup-preview-info {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.backup-preview-info ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+}
+
+.backup-preview-info li {
+    margin-bottom: 0.25rem;
+}
+
+.backup-preview-loading {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 2rem;
+    font-style: italic;
+}
+
+/* Backup Form */
+.backup-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.backup-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.backup-input:focus {
+    border-color: var(--accent-primary);
+    outline: none;
+}
+
+.backup-options h4 {
+    margin: 0 0 0.75rem 0;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.checkbox-label input[type="checkbox"] {
+    margin: 0;
+    transform: scale(1.1);
+}
+
+.backup-actions {
+    margin-top: 1rem;
+}
+
+/* Restore Form */
+.restore-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.file-upload {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.selected-file {
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    border: 1px solid var(--border-color);
+}
+
+.restore-info {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.restore-info h4 {
+    margin: 0 0 0.75rem 0;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.restore-info ul {
+    margin: 0 0 1rem 0;
+    padding-left: 1.5rem;
+}
+
+.restore-info li {
+    margin-bottom: 0.25rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+/* Last Backup Info */
+.backup-history-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.last-backup-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.last-backup-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.last-backup-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.last-backup-date {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.backup-history-loading {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 1rem;
+    font-style: italic;
+}
+
+.no-backups {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 1rem;
+    font-style: italic;
+}
+
+/* Backup Help */
+.backup-help {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.backup-help h3 {
+    margin: 0 0 1rem 0;
+    color: var(--text-primary);
+}
+
+.help-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+}
+
+.help-item {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.help-item h4 {
+    margin: 0 0 0.75rem 0;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.help-item ul {
+    margin: 0;
+    padding-left: 1.5rem;
+}
+
+.help-item ol {
+    margin: 0;
+    padding-left: 1.5rem;
+}
+
+.help-item li {
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.help-item code {
+    background: var(--bg-primary);
+    color: var(--accent-primary);
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.85rem;
+}
+
+/* Restore Summary Styles */
+.restore-summary {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+.restore-summary h4 {
+    margin: 0 0 0.75rem 0;
+    color: var(--text-primary);
+}
+
+.restore-summary ul {
+    margin: 0;
+    padding-left: 1.5rem;
+}
+
+.restore-summary li {
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+}
+
+.next-steps {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+.next-steps h4 {
+    margin: 0 0 0.75rem 0;
+    color: var(--text-primary);
+}
+
+.next-steps ol {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+}
+
+.next-steps li {
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .backup-sections {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    
+    .backup-preview-stats {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .last-backup-details {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
 }

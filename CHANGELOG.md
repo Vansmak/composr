@@ -1,6 +1,61 @@
 # Changelog
 All notable changes to Composr will be documented in this file.
 
+## [1.6.0] - 2025-05-25
+### Added
+- **Project Creation Tool**: New "Create" subtab with step-by-step project wizard
+  - Template-based project creation with environment variable extraction
+  - Support for multiple project locations (main directory + extra directories)
+  - Create & Deploy functionality with intelligent error handling
+  - Automatic .env file generation from compose templates
+- **Backup & Restore System**: Complete configuration backup and restore
+  - One-click backup creation with downloadable ZIP archives
+  - Unified backup compose files for easy deployment
+  - Container metadata preservation (tags, custom URLs, stack assignments)
+  - Automated restore scripts included in backup archives
+  - Backup history tracking with local storage
+- **Enhanced Environment Variable Management**:
+  - Extract variables from compose files in both Create and Compose tabs
+  - Create new .env files directly from extracted variables
+  - Improved environment file editor with better mobile support
+
+### Changed
+- **Editor Migration**: Switched from Monaco Editor to CodeMirror 5
+  - Reduced Docker image size significantly
+  - Improved loading performance and stability
+  - Maintained syntax highlighting for YAML, shell, and JavaScript
+  - Better mobile editor experience with responsive heights
+- **Docker Image Optimization**: Multi-stage build implementation
+  - Switched to Alpine Linux base for smaller footprint
+  - Multi-stage build separates build dependencies from runtime
+  - Multi-architecture build support (AMD64, ARM64, ARMv7)
+  - Automated version management in build pipeline
+  - Significantly reduced final image size while maintaining full functionality
+- **Mobile Interface Improvements**:
+  - Fixed Config tab layout issues with better button stacking
+  - Forced Images tab to card view on mobile (removed confusing table view)
+  - Improved header layout and tab navigation on mobile devices
+  - Better modal positioning and sizing for mobile screens
+- **Create & Deploy Workflow Enhancement**:
+  - Intelligent partial success handling (project created but deployment failed)
+  - Detailed error modals with retry options and file editing access
+  - Better user feedback throughout the creation process
+
+### Fixed
+- **Mobile Layout Issues**:
+  - Config subtabs now wrap properly on mobile screens
+  - Images tab displays correctly as cards instead of table format
+  - System stats header maintains proper alignment on mobile
+  - All navigation tabs visible and properly sized for mobile devices
+- **Project Creation Edge Cases**:
+  - Fixed environment file creation in both create-only and create-deploy scenarios
+  - Proper handling of project location selection (extra directories vs main directory)
+  - Form state management when switching between tabs
+- **Editor Improvements**:
+  - Better CodeMirror initialization timing
+  - Improved content synchronization between editors and forms
+  - Fixed mobile editor height and responsiveness issues
+
 ## [1.5.0] - 2025-05-19
 ### Added
 - Instance Bookmarks feature - easily switch between different Composr instances

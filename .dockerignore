@@ -1,31 +1,87 @@
 # Development/test files
-*.pyc
-__pycache__/
-.pytest_cache/
-.coverage
+
+
 htmlcov/
+
+*~
+*.sh
+
+
+
+# Container metadata (if you don't want it in image)
+container_metadata.json
+composr.log
+metadata/
+
+# Version control
+.git
+.gitignore
+README.md
+*.md
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
+.vscode
+.idea
 *.swp
 *.swo
 *~
+
+# Node (if you have any frontend build tools)
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Build artifacts
 build/
 dist/
 *.egg-info/
 
-# Version control
-.git/
-.gitignore
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Development files
+tests/
+test_*
+*_test.py
+.pytest_cache/
+.env.local
+.env.development
 
 # Documentation
 docs/
 *.md
-
-# Monaco editor (if you had local files)
-monaco/
-static/monaco/
-
-# Container metadata (if you don't want it in image)
-container_metadata.json
-composr.log
-metadata/
+LICENSE

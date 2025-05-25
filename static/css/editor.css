@@ -1,5 +1,5 @@
-/* Monaco Editor Specific Styles */
-.monaco-editor-container {
+/* CodeMirror Editor Specific Styles (adapted from Monaco) */
+.codemirror-editor-container {
     width: 100%;
     height: 600px;
     border: 1px solid var(--border-color);
@@ -7,42 +7,35 @@
     overflow: hidden;
 }
 
-.editor-container .monaco-editor-container {
-    margin-top: 0.5rem;
-}
+ 
 
-/* Hide original textareas when Monaco is active */
-.code-editor.monaco-initialized {
-    display: none;
-}
-
-/* Theme-specific Monaco adjustments */
-[data-theme="refined-dark"] .monaco-editor-container,
-[data-theme="minimal-dark"] .monaco-editor-container,
-[data-theme="dracula"] .monaco-editor-container,
-[data-theme="nord"] .monaco-editor-container,
-[data-theme="solarized-dark"] .monaco-editor-container,
-[data-theme="github-dark"] .monaco-editor-container,
-[data-theme="atom-one-dark"] .monaco-editor-container,
-[data-theme="monokai"] .monaco-editor-container {
+/* Theme-specific CodeMirror adjustments (adapted from Monaco) */
+[data-theme="refined-dark"] .codemirror-editor-container,
+[data-theme="minimal-dark"] .codemirror-editor-container,
+[data-theme="dracula"] .codemirror-editor-container,
+[data-theme="nord"] .codemirror-editor-container,
+[data-theme="solarized-dark"] .codemirror-editor-container,
+[data-theme="github-dark"] .codemirror-editor-container,
+[data-theme="atom-one-dark"] .codemirror-editor-container,
+[data-theme="monokai"] .codemirror-editor-container {
     background-color: var(--card-background);
 }
 
-/* Responsive Monaco editor */
+/* Responsive CodeMirror editor (adapted from Monaco) */
 @media (max-width: 768px) {
-    .monaco-editor-container {
+    .codemirror-editor-container {
         height: 400px;
     }
 }
 
 @media (max-width: 480px) {
-    .monaco-editor-container {
+    .codemirror-editor-container {
         height: 300px;
     }
 }
 
 /* Loading state for editors */
-.monaco-editor-loading {
+.codemirror-editor-loading {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -51,12 +44,12 @@
     font-size: 1.2rem;
 }
 
-.monaco-editor-loading::after {
+.codemirror-editor-loading::after {
     content: "Loading editor...";
 }
 
 /* Error state for editors */
-.monaco-editor-error {
+.codemirror-editor-error {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -81,4 +74,442 @@
     border-bottom: 1px solid var(--border-color);
 }
 
-/* Add to existing styles.css or create separate editor-styles.css */
+/* Add at the end of your styles.css file */
+
+/* Project Creation Form */
+.project-creation-form {
+    background: var(--bg-card);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.form-title {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    font-size: 1.25rem;
+    color: var(--text-primary);
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.form-group input, 
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.form-group textarea {
+    min-height: 120px;
+    font-family: monospace;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.form-step {
+    display: none;
+}
+
+.form-step.active {
+    display: block;
+}
+
+.step-title {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.step-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    color: white;
+    font-weight: bold;
+    margin-right: 0.75rem;
+}
+
+.project-preview {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.preview-file {
+    margin-bottom: 1rem;
+}
+
+.preview-file h4 {
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+}
+
+.preview-file-icon {
+    margin-right: 0.5rem;
+}
+
+.preview-content {
+    font-family: monospace;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    background: var(--bg-primary);
+    padding: 0.75rem;
+    border-radius: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+/* Add to editor.css if not already there */
+input[type="checkbox"] {
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+label[for="env-content"] {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+/* Replace the mobile header and tab fixes in your styles.css with these corrected versions */
+
+/* === Fix Mobile Header Layout === */
+@media (max-width: 768px) {
+    header {
+        padding: 0.5rem;
+        gap: 0.5rem;
+        /* Keep the original flex layout */
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    /* Fix system stats to stay on the right side like the original */
+    .system-stats {
+        padding: 8px;
+        /* Keep the original compact layout */
+    }
+    
+    .stats-compact {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        font-size: 0.75rem;
+        gap: 2px;
+    }
+    
+    .stats-compact span {
+        /* Don't force block display - keep inline */
+        white-space: nowrap;
+    }
+    
+    /* Hide the grid stats on mobile (keep original behavior) */
+    .stats-grid {
+        display: none;
+    }
+}
+
+/* === Fix Mobile Tab Navigation === */
+@media (max-width: 768px) {
+    .tabs {
+        /* Keep original tab behavior but ensure all tabs are visible */
+        display: flex;
+        background-color: var(--background-secondary);
+        border-radius: 8px 8px 0 0;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        padding: 0;
+        /* Ensure tabs take full width */
+        width: 100%;
+    }
+    
+    .tabs::-webkit-scrollbar {
+        display: none;
+    }
+    
+    .tab {
+        /* Make tabs smaller but keep all visible */
+        padding: 0.5rem 0.75rem;
+        font-size: 0.85rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+        /* Allow tabs to be smaller on mobile */
+        min-width: auto;
+    }
+    
+    .tab-icon {
+        font-size: 1rem;
+        margin-right: 0.5rem;
+    }
+    
+    .tab-text {
+        /* Show text on mobile but make it smaller */
+        font-size: 0.8rem;
+    }
+    
+    /* For very small screens, make tabs even more compact */
+    @media (max-width: 480px) {
+        .tab {
+            padding: 0.4rem 0.6rem;
+            font-size: 0.8rem;
+        }
+        
+        .tab-icon {
+            font-size: 0.9rem;
+            margin-right: 0.25rem;
+        }
+        
+        .tab-text {
+            font-size: 0.75rem;
+        }
+    }
+}
+
+/* === Keep Original Mobile Config Tab Fixes === */
+@media (max-width: 768px) {
+    /* Config subtabs */
+    .config-subtabs {
+        max-width: none;
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        padding: 0.5rem;
+    }
+    
+    .subtab {
+        padding: 0.4rem 0.75rem;
+        font-size: 0.8rem;
+        flex: 1;
+        min-width: auto;
+        text-align: center;
+    }
+    
+    /* Compose file selector */
+    .compose-file-selector {
+        flex-direction: column;
+        gap: 0.75rem;
+        align-items: stretch;
+    }
+    
+    .compose-file-selector select {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+    
+    .scan-btn {
+        width: 100%;
+        padding: 0.75rem;
+    }
+    
+    /* Editor actions */
+    .editor-actions {
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-top: 1.5rem;
+    }
+    
+    .editor-actions .btn {
+        width: 100%;
+        padding: 0.75rem;
+        font-size: 1rem;
+    }
+    
+    .editor-actions .help-text {
+        margin-top: 0.25rem;
+        font-size: 0.8rem;
+        text-align: center;
+    }
+    
+    /* Editor heights */
+    #compose-editor, 
+    #env-editor, 
+    #caddy-editor {
+        height: 300px;
+        font-size: 0.85rem;
+    }
+    
+    .tab-content {
+        padding: 0.75rem 0.5rem;
+    }
+}
+
+/* === Keep Mobile Images Fixes === */
+@media (max-width: 768px) {
+    /* Force card view for images */
+    #images-tab #images-grid-view {
+        display: block !important;
+    }
+    
+    #images-tab #images-table-view {
+        display: none !important;
+    }
+    
+    #images-tab #toggle-image-view {
+        display: none !important;
+    }
+    
+    .images-grid {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+    
+    .image-card {
+        border-radius: 8px;
+    }
+    
+    .image-header {
+        padding: 0.75rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    
+    .image-name {
+        max-width: 100%;
+        font-size: 0.9rem;
+        margin-bottom: 0.25rem;
+    }
+    
+    .image-size {
+        font-size: 0.8rem;
+    }
+    
+    .image-body {
+        padding: 0.75rem;
+    }
+    
+    .image-body > div {
+        margin-bottom: 0.5rem;
+        font-size: 0.85rem;
+    }
+    
+    .section-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .section-header h3 {
+        text-align: center;
+        margin-bottom: 0;
+    }
+    
+    .image-actions {
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .image-actions .btn {
+        flex: 1;
+        min-width: 120px;
+        padding: 0.75rem 1rem;
+    }
+}
+
+/* === Fix Mobile Container Cards === */
+@media (max-width: 768px) {
+    .container-card {
+        margin-bottom: 0.75rem;
+    }
+    
+    .container-header {
+        padding: 0.75rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    
+    .container-name {
+        font-size: 0.9rem;
+        max-width: 100%;
+        margin-bottom: 0.25rem;
+    }
+    
+    .container-header-right {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    
+    .container-status,
+    .uptime-badge {
+        font-size: 0.7rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    .container-card .actions {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+    }
+    
+    .container-card .actions .btn {
+        padding: 0.6rem 0.5rem;
+        font-size: 0.8rem;
+    }
+}
+
+/* === Mobile Modal Improvements === */
+@media (max-width: 768px) {
+    .logs-modal {
+        width: 95%;
+        max-width: none;
+        max-height: 90vh;
+        margin: 0;
+        top: 5%;
+        left: 2.5%;
+        transform: none;
+    }
+    
+    .modal-header {
+        padding: 1rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    
+    .modal-header h3 {
+        font-size: 1.1rem;
+        flex: 1;
+    }
+    
+    .logs-content {
+        font-size: 0.8rem;
+        max-height: 50vh;
+    }
+    
+    .logs-modal .actions {
+        flex-direction: column;
+        gap: 0.75rem;
+        padding: 0 1rem 1rem 1rem;
+    }
+    
+    .logs-modal .actions .btn {
+        width: 100%;
+        padding: 0.75rem;
+        font-size: 1rem;
+    }
+}

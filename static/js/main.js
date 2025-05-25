@@ -89,7 +89,7 @@ function setTheme(theme) {
     document.body.offsetHeight; // This triggers a reflow
     document.body.style.display = '';
     
-    // Emit theme change event for Monaco editors
+    // Emit theme change event for editors
     window.dispatchEvent(new Event('themeChanged'));
     
     console.log(`Theme set to: ${theme}`);
@@ -214,7 +214,11 @@ function switchTab(tabName) {
         }
     } else if (tabName === 'hosts') {
         loadHostsList();  // Load the hosts management view
+    } else if (tabName === 'backup') {
+        // NEW: Initialize backup tab when first opened
+        initializeBackupTab();
     }
+
     
     if (document.getElementById('batch-actions')) {
         document.getElementById('batch-actions').classList.toggle('visible', 
@@ -222,31 +226,58 @@ function switchTab(tabName) {
     }
 }
 
-// 9. Update switchSubTab function
+// Fix the switchSubTab function in main.js to properly handle create tab state
+
 function switchSubTab(subtabName) {
     document.querySelectorAll('.subtab').forEach(tab => tab.classList.remove('active'));
     document.querySelectorAll('.subtab-content').forEach(content => content.classList.remove('active'));
     document.querySelector(`.subtab[onclick="switchSubTab('${subtabName}')"]`).classList.add('active');
     document.getElementById(`${subtabName}-subtab`).classList.add('active');
-    
+   
     if (subtabName === 'compose') {
         loadComposeFiles();
-        // Re-initialize Monaco for compose editor if needed
-        if (window.initializeMonacoEditor && !window.monacoEditors?.['compose-editor']) {
-            window.initializeMonacoEditor('compose-editor', 'yaml');
+        // Add this line to load templates when switching to compose tab
+        if (window.loadTemplates) window.loadTemplates();
+        
+        // Re-initialize CodeMirror for compose editor if needed
+        if (window.initializeCodeMirrorEditor && !window.codeMirrorEditors?.['compose-editor']) {
+            window.initializeCodeMirrorEditor('compose-editor', 'yaml');
         }
     } else if (subtabName === 'env') {
         scanEnvFiles();
-        // Re-initialize Monaco for env editor if needed
-        if (window.initializeMonacoEditor && !window.monacoEditors?.['env-editor']) {
-            window.initializeMonacoEditor('env-editor', 'ini');
+        // Re-initialize editor for env editor if needed
+        if (window.initializeCodeMirrorEditor && !window.codeMirrorEditors?.['env-editor']) {
+            window.initializeCodeMirrorEditor('env-editor', 'ini');
         }
     } else if (subtabName === 'caddy') {
         loadCaddyFile();
-        // Re-initialize Monaco for caddy editor if needed
-        if (window.initializeMonacoEditor && !window.monacoEditors?.['caddy-editor']) {
-            window.initializeMonacoEditor('caddy-editor', 'text');
+        // Re-initialize editor for caddy editor if needed
+        if (window.initializeCodeMirrorEditor && !window.codeMirrorEditors?.['caddy-editor']) {
+            window.initializeCodeMirrorEditor('caddy-editor', 'text');
         }
+    } else if (subtabName === 'create') {
+        // FIX: Always show the project creation form when switching to create tab
+        const projectCreationForm = document.getElementById('project-creation-form');
+        if (projectCreationForm) {
+            projectCreationForm.style.display = 'block';
+        }
+        
+        // Initialize project creation
+        if (window.loadTemplates) window.loadTemplates();
+        if (window.loadProjectLocations) window.loadProjectLocations();
+        if (window.goToStep) window.goToStep(1);
+        
+        // FIX: Initialize CodeMirror editors for create form if not already done
+        setTimeout(() => {
+            if (window.initializeCodeMirrorEditor) {
+                if (!window.codeMirrorEditors?.['compose-content']) {
+                    window.initializeCodeMirrorEditor('compose-content', 'yaml');
+                }
+                if (!window.codeMirrorEditors?.['env-content']) {
+                    window.initializeCodeMirrorEditor('env-content', 'ini');
+                }
+            }
+        }, 500);
     }
 }
 
@@ -1246,10 +1277,10 @@ function loadComposeFiles() {
         .then(data => {
             const select = document.getElementById('compose-files');
             select.innerHTML = '<option value="">Select a compose file...</option>';
+          
+            
             if (data.files && data.files.length) {
-                console.log('Available compose files:', data.files);
-               
-                // Add options to dropdown
+                // Add existing options
                 data.files.forEach(file => {
                     const option = document.createElement('option');
                     option.value = file;
@@ -1453,7 +1484,6 @@ function loadSelectedFile() {
         loadCompose();
     }
 }
-
 // 1. Update loadCompose function - COMPLETE VERSION
 async function loadCompose() {
     if (!currentComposeFile) {
@@ -1475,9 +1505,9 @@ async function loadCompose() {
         
         const result = await response.json();
         if (result.content) {
-            // Use Monaco editor if available
-            if (window.updateMonacoContent) {
-                window.updateMonacoContent('compose-editor', result.content);
+            // Use editor if available
+            if (window.updateCodeMirrorContent) {
+                window.updateCodeMirrorContent('compose-editor', result.content);
             } else {
                 document.getElementById('compose-editor').value = result.content;
             }
@@ -1501,9 +1531,9 @@ async function loadCompose() {
                     const altResult = await altResponse.json();
                     
                     if (altResult.status === 'success' && altResult.content) {
-                        // Use Monaco editor if available
-                        if (window.updateMonacoContent) {
-                            window.updateMonacoContent('compose-editor', altResult.content);
+                        // Use editor if available
+                        if (window.updateCodeMirrorContent) {
+                            window.updateCodeMirrorContent('compose-editor', altResult.content);
                         } else {
                             document.getElementById('compose-editor').value = altResult.content;
                         }
@@ -1539,9 +1569,9 @@ async function loadCompose() {
                     const directResult = await directResponse.json();
                     
                     if (directResult.status === 'success' && directResult.content) {
-                        // Use Monaco editor if available
-                        if (window.updateMonacoContent) {
-                            window.updateMonacoContent('compose-editor', directResult.content);
+                        // Use editor if available
+                        if (window.updateCodeMirrorContent) {
+                            window.updateCodeMirrorContent('compose-editor', directResult.content);
                         } else {
                             document.getElementById('compose-editor').value = directResult.content;
                         }
@@ -1566,9 +1596,9 @@ async function saveCompose() {
     try {
         setLoading(true, 'Saving compose file...');
         
-        // Get content from Monaco editor if available
-        const content = window.getMonacoContent ? 
-            window.getMonacoContent('compose-editor') : 
+        // Get content from editor if available
+        const content = window.getCodeMirrorContent ? 
+            window.getCodeMirrorContent('compose-editor') : 
             document.getElementById('compose-editor').value;
             
         const response = await fetch('/api/compose', {
@@ -1769,17 +1799,17 @@ function loadEnvFile() {
         .then(data => {
             setLoading(false);
             if (data.status === 'success') {
-                // Use Monaco editor if available
-                if (window.updateMonacoContent) {
-                    window.updateMonacoContent('env-editor', data.content);
+                // Use editor if available
+                if (window.updateCodeMirrorContent) {
+                    window.updateCodeMirrorContent('env-editor', data.content);
                 } else {
                     document.getElementById('env-editor').value = data.content;
                 }
                 showMessage('success', `Loaded .env file: ${currentEnvFile}`);
             } else {
                 const errorContent = `# Failed to load ${currentEnvFile}\n# Error: ${data.message}\n\n# You can create a new .env file here`;
-                if (window.updateMonacoContent) {
-                    window.updateMonacoContent('env-editor', errorContent);
+                if (window.updateCodeMirrorContent) {
+                    window.updateCodeMirrorContent('env-editor', errorContent);
                 } else {
                     document.getElementById('env-editor').value = errorContent;
                 }
@@ -1790,8 +1820,8 @@ function loadEnvFile() {
             setLoading(false);
             console.error('Failed to load .env file:', error);
             const errorContent = `# Failed to load ${currentEnvFile}\n# Error: ${error}\n\n# You can create a new .env file here`;
-            if (window.updateMonacoContent) {
-                window.updateMonacoContent('env-editor', errorContent);
+            if (window.updateCodeMirrorContent) {
+                window.updateCodeMirrorContent('env-editor', errorContent);
             } else {
                 document.getElementById('env-editor').value = errorContent;
             }
@@ -1807,9 +1837,9 @@ function saveEnvFile() {
     }
     setLoading(true, 'Saving .env file...');
     
-    // Get content from Monaco editor if available
-    const content = window.getMonacoContent ? 
-        window.getMonacoContent('env-editor') : 
+    // Get content from editor if available
+    const content = window.getCodeMirrorContent ? 
+        window.getCodeMirrorContent('env-editor') : 
         document.getElementById('env-editor').value;
         
     fetch('/api/env/file', {
@@ -1841,9 +1871,9 @@ function loadCaddyFile() {
         .then(data => {
             setLoading(false);
             if (data.status === 'success') {
-                // Use Monaco editor if available
-                if (window.updateMonacoContent) {
-                    window.updateMonacoContent('caddy-editor', data.content);
+                // Use editor if available
+                if (window.updateCodeMirrorContent) {
+                    window.updateCodeMirrorContent('caddy-editor', data.content);
                 } else {
                     document.getElementById('caddy-editor').value = data.content;
                 }
@@ -1864,9 +1894,9 @@ function loadCaddyFile() {
 function saveCaddyFile() {
     setLoading(true, 'Saving Caddyfile...');
     
-    // Get content from Monaco editor if available
-    const content = window.getMonacoContent ? 
-        window.getMonacoContent('caddy-editor') : 
+    // Get content from editor if available
+    const content = window.getCodeMirrorContent ? 
+        window.getCodeMirrorContent('caddy-editor') : 
         document.getElementById('caddy-editor').value;
         
     fetch('/api/caddy/file', {
@@ -1894,9 +1924,9 @@ function saveCaddyFile() {
 function saveCaddyFileAndReload() {
     setLoading(true, 'Saving and reloading Caddyfile...');
     
-    // Get content from Monaco editor if available
-    const content = window.getMonacoContent ? 
-        window.getMonacoContent('caddy-editor') : 
+    // Get content from editor if available
+    const content = window.getCodeMirrorContent ? 
+        window.getCodeMirrorContent('caddy-editor') : 
         document.getElementById('caddy-editor').value;
         
     fetch('/api/caddy/file', {
@@ -2652,9 +2682,9 @@ function directLoadCompose(composePath) {
             .then(response => response.json())
             .then(result => {
                 if (result.status === 'success') {
-                    // Use Monaco editor if available
-                    if (window.updateMonacoContent) {
-                        window.updateMonacoContent('compose-editor', result.content);
+                    // Use editor if available
+                    if (window.updateCodeMirrorContent) {
+                        window.updateCodeMirrorContent('compose-editor', result.content);
                     } else {
                         document.getElementById('compose-editor').value = result.content;
                     }

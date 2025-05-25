@@ -1,13 +1,18 @@
+from flask import Flask, render_template, jsonify, request, send_file  # Add send_file here
 import json
 import logging
 import os
 import threading
 import time
+import re
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
-from flask import Flask, render_template, jsonify, request
-
+# Add these new imports for backup functionality
+import zipfile
+import tempfile
+import shutil
+import yaml
 # Import helper functions
 from functions import (
     initialize_docker_client, load_container_metadata, save_container_metadata, 
@@ -22,7 +27,7 @@ while host_manager.get_client('local') is None and time.time() - start_time < 5:
     time.sleep(0.1)
 
 # Add after imports
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -90,6 +95,618 @@ client = host_manager.get_client()
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@app.route('/api/backup/create', methods=['POST'])
+def create_backup():
+    """Create a comprehensive backup of all containers, compose files, and metadata"""
+    try:
+        if client is None:
+            return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+        
+        # Get backup options from request
+        data = request.json or {}
+        include_env_files = data.get('include_env_files', True)
+        include_compose_files = data.get('include_compose_files', True)
+        backup_name = data.get('backup_name', f"composr-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
+        
+        logger.info(f"Creating backup: {backup_name}")
+        
+        # 1. Get all containers with full metadata
+        containers = []
+        try:
+            container_metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
+            logger.info(f"Loaded container metadata for {len(container_metadata)} containers")
+        except Exception as e:
+            logger.warning(f"Failed to load container metadata: {e}")
+            container_metadata = {}
+        
+        try:
+            docker_containers = client.containers.list(all=True)
+            logger.info(f"Found {len(docker_containers)} Docker containers")
+        except Exception as e:
+            logger.error(f"Failed to list Docker containers: {e}")
+            return jsonify({'status': 'error', 'message': f'Failed to list containers: {str(e)}'})
+        
+        for container in docker_containers:
+            try:
+                labels = container.labels or {}
+                container_name = container.name
+                
+                # Get container metadata
+                container_meta = container_metadata.get(container_name, {})
+                
+                # Extract comprehensive container info
+                container_info = {
+                    'name': container_name,
+                    'image': container.image.tags[0] if container.image.tags else container.image.id,
+                    'status': container.status,
+                    'created': container.attrs.get('Created', ''),
+                    'compose_project': labels.get('com.docker.compose.project'),
+                    'compose_service': labels.get('com.docker.compose.service'),
+                    'compose_file': labels.get('com.docker.compose.project.config_files'),
+                    'tags': container_meta.get('tags', []),
+                    'custom_url': container_meta.get('custom_url', ''),
+                    'ports': {},
+                    'volumes': [],
+                    'environment': [],
+                    'networks': [],
+                    'labels': dict(labels),
+                    'restart_policy': container.attrs.get('HostConfig', {}).get('RestartPolicy', {}),
+                }
+                
+                # Extract port mappings
+                try:
+                    port_bindings = container.attrs.get('HostConfig', {}).get('PortBindings')
+                    if port_bindings:  # Check if not None
+                        for container_port, host_config in port_bindings.items():
+                            if host_config and len(host_config) > 0:
+                                host_port = host_config[0].get('HostPort')
+                                if host_port:
+                                    container_info['ports'][host_port] = container_port
+                except Exception as e:
+                    logger.warning(f"Failed to extract ports for {container_name}: {e}")
+                
+                # Extract volume mounts
+                try:
+                    mounts = container.attrs.get('Mounts', [])
+                    for mount in mounts:
+                        if mount.get('Type') == 'bind':
+                            container_info['volumes'].append(f"{mount.get('Source', '')}:{mount.get('Destination', '')}")
+                        elif mount.get('Type') == 'volume':
+                            container_info['volumes'].append(f"{mount.get('Name', '')}:{mount.get('Destination', '')}")
+                except Exception as e:
+                    logger.warning(f"Failed to extract volumes for {container_name}: {e}")
+                
+                # Extract environment variables
+                try:
+                    env_vars = container.attrs.get('Config', {}).get('Env', [])
+                    container_info['environment'] = [env for env in env_vars if not env.startswith('PATH=')]
+                except Exception as e:
+                    logger.warning(f"Failed to extract environment for {container_name}: {e}")
+                
+                # Extract networks
+                try:
+                    networks = container.attrs.get('NetworkSettings', {}).get('Networks', {})
+                    container_info['networks'] = list(networks.keys())
+                except Exception as e:
+                    logger.warning(f"Failed to extract networks for {container_name}: {e}")
+                
+                containers.append(container_info)
+                
+            except Exception as e:
+                logger.error(f"Failed to process container {container.name}: {e}")
+                continue
+        
+        logger.info(f"Processed {len(containers)} containers for backup")
+        
+        # 2. Create backup metadata
+        backup_metadata = {
+            'backup_info': {
+                'name': backup_name,
+                'created': datetime.now().isoformat(),
+                'composr_version': __version__,
+                'host': 'composr-host',
+                'container_count': len(containers),
+                'backup_options': {
+                    'include_env_files': include_env_files,
+                    'include_compose_files': include_compose_files
+                }
+            },
+            'containers': containers
+        }
+        
+        # 3. Generate unified backup compose file
+        try:
+            backup_compose = generate_backup_compose(containers, backup_metadata['backup_info'])
+            logger.info("Generated backup compose file")
+        except Exception as e:
+            logger.error(f"Failed to generate backup compose: {e}")
+            backup_compose = {'version': '3.8', 'services': {}}
+        
+        # 4. Create temporary directory for backup files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logger.info(f"Using temporary directory: {temp_dir}")
+            
+            # Save backup compose file
+            backup_compose_path = os.path.join(temp_dir, 'backup-compose.yml')
+            try:
+                with open(backup_compose_path, 'w') as f:
+                    yaml.dump(backup_compose, f, default_flow_style=False, sort_keys=False)
+                logger.info("Saved backup compose file")
+            except Exception as e:
+                logger.error(f"Failed to save backup compose: {e}")
+                # Create a minimal compose file
+                with open(backup_compose_path, 'w') as f:
+                    f.write("version: '3.8'\nservices: {}\n")
+            
+            # Save metadata JSON
+            metadata_path = os.path.join(temp_dir, 'backup-metadata.json')
+            try:
+                with open(metadata_path, 'w') as f:
+                    json.dump(backup_metadata, f, indent=2)
+                logger.info("Saved backup metadata")
+            except Exception as e:
+                logger.error(f"Failed to save backup metadata: {e}")
+                with open(metadata_path, 'w') as f:
+                    json.dump({'error': str(e)}, f)
+            
+            # 5. Copy original compose files if requested
+            compose_files_copied = []
+            if include_compose_files:
+                compose_files_dir = os.path.join(temp_dir, 'original-compose-files')
+                os.makedirs(compose_files_dir, exist_ok=True)
+                
+                try:
+                    compose_files = get_compose_files_cached(COMPOSE_DIR, tuple(EXTRA_COMPOSE_DIRS if EXTRA_COMPOSE_DIRS else []))
+                    logger.info(f"Found {len(compose_files)} compose files to backup")
+                    
+                    for compose_file in compose_files:
+                        try:
+                            full_path = resolve_compose_file_path(compose_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+                            if full_path and os.path.exists(full_path):
+                                # Create directory structure in backup
+                                rel_path = compose_file
+                                backup_file_path = os.path.join(compose_files_dir, rel_path)
+                                os.makedirs(os.path.dirname(backup_file_path), exist_ok=True)
+                                
+                                shutil.copy2(full_path, backup_file_path)
+                                compose_files_copied.append(rel_path)
+                                logger.debug(f"Copied compose file: {rel_path}")
+                        except Exception as e:
+                            logger.warning(f"Failed to copy compose file {compose_file}: {e}")
+                except Exception as e:
+                    logger.warning(f"Failed to copy compose files: {e}")
+            
+            # 6. Copy env files if requested
+            env_files_copied = []
+            if include_env_files:
+                env_files_dir = os.path.join(temp_dir, 'env-files')
+                os.makedirs(env_files_dir, exist_ok=True)
+                
+                try:
+                    # Find all .env files
+                    extra_dirs = EXTRA_COMPOSE_DIRS if EXTRA_COMPOSE_DIRS else []
+                    if isinstance(extra_dirs, str):
+                        extra_dirs = extra_dirs.split(':') if extra_dirs else []
+                    
+                    search_dirs = [COMPOSE_DIR] + [d for d in extra_dirs if d and os.path.exists(d)]
+                    logger.info(f"Searching for .env files in: {search_dirs}")
+                    
+                    for search_dir in search_dirs:
+                        for root, dirs, files in os.walk(search_dir):
+                            for file in files:
+                                if file == '.env':
+                                    try:
+                                        env_file_path = os.path.join(root, file)
+                                        rel_path = os.path.relpath(env_file_path, search_dir)
+                                        backup_env_path = os.path.join(env_files_dir, rel_path)
+                                        os.makedirs(os.path.dirname(backup_env_path), exist_ok=True)
+                                        
+                                        shutil.copy2(env_file_path, backup_env_path)
+                                        env_files_copied.append(rel_path)
+                                        logger.debug(f"Copied env file: {rel_path}")
+                                    except Exception as e:
+                                        logger.warning(f"Failed to copy env file {file}: {e}")
+                except Exception as e:
+                    logger.warning(f"Failed to copy env files: {e}")
+            
+            # 7. Create simple README
+            readme_content = f"""# Composr Backup: {backup_name}
+
+Created: {backup_metadata['backup_info']['created']}
+Containers: {len(containers)}
+Compose Files: {len(compose_files_copied)}
+Env Files: {len(env_files_copied)}
+
+## Quick Deploy
+```bash
+docker-compose -f backup-compose.yml up -d
+```
+
+## Files
+- backup-compose.yml - Unified compose file
+- backup-metadata.json - Container metadata
+- original-compose-files/ - Original compose files
+- env-files/ - Environment files
+"""
+            readme_path = os.path.join(temp_dir, 'README.md')
+            with open(readme_path, 'w') as f:
+                f.write(readme_content)
+            logger.info("Created README file")
+            
+            # 8. Create ZIP archive
+            zip_filename = f"{backup_name}.zip"
+            zip_path = os.path.join(tempfile.gettempdir(), zip_filename)
+            
+            logger.info(f"Creating ZIP file: {zip_path}")
+            
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for root, dirs, files in os.walk(temp_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, temp_dir)
+                        zipf.write(file_path, arcname)
+                        logger.debug(f"Added to ZIP: {arcname}")
+            
+            # Check if ZIP file was created and has content
+            if os.path.exists(zip_path):
+                zip_size = os.path.getsize(zip_path)
+                logger.info(f"ZIP file created successfully, size: {zip_size} bytes")
+                
+                if zip_size == 0:
+                    logger.error("ZIP file is empty!")
+                    return jsonify({'status': 'error', 'message': 'Created backup file is empty'})
+            else:
+                logger.error("ZIP file was not created!")
+                return jsonify({'status': 'error', 'message': 'Failed to create backup file'})
+            
+            # 9. Send file as download
+            try:
+                response = send_file(
+                    zip_path,
+                    as_attachment=True,
+                    download_name=zip_filename,
+                    mimetype='application/zip'
+                )
+                
+                # Clean up the temp file after sending
+                @response.call_on_close
+                def remove_file():
+                    try:
+                        if os.path.exists(zip_path):
+                            os.remove(zip_path)
+                    except:
+                        pass
+                
+                return response
+                
+            except Exception as e:
+                logger.error(f"Failed to send backup file: {e}")
+                return jsonify({'status': 'error', 'message': f'Failed to send backup file: {str(e)}'})
+    
+    except Exception as e:
+        logger.error(f"Failed to create backup: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# Simplified backup compose generation
+def generate_backup_compose(containers, backup_info):
+    """Generate a unified docker-compose.yml file from container data"""
+    compose_data = {
+        'version': '3.8',
+        'x-backup-info': backup_info,
+        'services': {}
+    }
+    
+    if not containers:
+        logger.warning("No containers to backup")
+        return compose_data
+    
+    for container in containers:
+        try:
+            service_name = container['name'].replace('/', '').replace('_', '-')
+            if not service_name:
+                continue
+            
+            service_config = {
+                'image': container.get('image', 'unknown'),
+                'container_name': container.get('name', service_name),
+                'labels': [
+                    f"composr.backup.original-name={container.get('name', service_name)}",
+                    f"composr.backup.status={container.get('status', 'unknown')}",
+                    f"composr.backup.created={backup_info.get('created', '')}",
+                ]
+            }
+            
+            # Add container metadata as labels
+            if container.get('tags'):
+                service_config['labels'].append(f"composr.backup.tags={','.join(container['tags'])}")
+            if container.get('custom_url'):
+                service_config['labels'].append(f"composr.backup.custom-url={container['custom_url']}")
+            if container.get('compose_project'):
+                service_config['labels'].append(f"composr.backup.original-stack={container['compose_project']}")
+            
+            # Add ports
+            if container.get('ports'):
+                service_config['ports'] = [f"{host}:{container_port}" for host, container_port in container['ports'].items()]
+            
+            # Add volumes (filter out empty ones)
+            if container.get('volumes'):
+                service_config['volumes'] = [v for v in container['volumes'] if v and ':' in v]
+            
+            # Add environment
+            if container.get('environment'):
+                service_config['environment'] = [e for e in container['environment'] if e]
+            
+            # Add networks (filter out default ones)
+            if container.get('networks'):
+                networks = [n for n in container['networks'] if n not in ['bridge', 'host', 'none']]
+                if networks:
+                    service_config['networks'] = networks
+            
+            # Add restart policy
+            restart_policy = container.get('restart_policy', {})
+            if restart_policy.get('Name') and restart_policy['Name'] != 'no':
+                service_config['restart'] = restart_policy['Name']
+            
+            compose_data['services'][service_name] = service_config
+            
+        except Exception as e:
+            logger.error(f"Failed to process container {container.get('name', 'unknown')} for compose: {e}")
+            continue
+    
+    logger.info(f"Generated backup compose with {len(compose_data['services'])} services")
+    return compose_data
+
+def generate_restore_script(backup_metadata, compose_files, env_files):
+    """Generate a bash script to restore the backup"""
+    script = f"""#!/bin/bash
+# Composr Backup Restore Script
+# Generated: {backup_metadata['backup_info']['created']}
+# Backup: {backup_metadata['backup_info']['name']}
+
+set -e
+
+echo "🔄 Restoring Composr Backup: {backup_metadata['backup_info']['name']}"
+echo "📅 Created: {backup_metadata['backup_info']['created']}"
+echo "🐳 Containers: {backup_metadata['backup_info']['container_count']}"
+echo ""
+
+# Check if docker is available
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker is not installed or not in PATH"
+    exit 1
+fi
+
+# Check if docker-compose is available
+if ! command -v docker-compose &> /dev/null; then
+    echo "❌ Docker Compose is not installed or not in PATH"
+    exit 1
+fi
+
+echo "✅ Docker and Docker Compose are available"
+echo ""
+
+# Restore compose files
+if [ -d "original-compose-files" ]; then
+    echo "📁 Restoring original compose files..."
+    cp -r original-compose-files/* ./
+    echo "✅ Compose files restored"
+fi
+
+# Restore env files
+if [ -d "env-files" ]; then
+    echo "📁 Restoring environment files..."
+    cp -r env-files/* ./
+    echo "✅ Environment files restored"
+fi
+
+echo ""
+echo "🚀 To deploy the backup compose:"
+echo "   docker-compose -f backup-compose.yml up -d"
+echo ""
+echo "⚠️  Note: This will create containers with backup labels."
+echo "   You may want to edit backup-compose.yml first."
+echo ""
+echo "✅ Restore completed!"
+"""
+    return script
+
+def generate_backup_readme(backup_metadata, compose_files, env_files):
+    """Generate README for the backup"""
+    readme = f"""# Composr Backup: {backup_metadata['backup_info']['name']}
+
+## Backup Information
+- **Created**: {backup_metadata['backup_info']['created']}
+- **Composr Version**: {backup_metadata['backup_info'].get('composr_version', 'unknown')}
+- **Host**: {backup_metadata['backup_info'].get('host', 'unknown')}
+- **Containers**: {backup_metadata['backup_info']['container_count']}
+
+## Files Included
+
+### Core Backup Files
+- `backup-compose.yml` - Unified compose file with all containers
+- `backup-metadata.json` - Complete container metadata and settings
+- `restore.sh` - Automated restore script
+- `README.md` - This file
+
+### Original Files
+"""
+    
+    if compose_files:
+        readme += f"- `original-compose-files/` - {len(compose_files)} original compose files\n"
+    if env_files:
+        readme += f"- `env-files/` - {len(env_files)} environment files\n"
+    
+    readme += """
+## Quick Restore
+
+1. Extract this archive to your desired location
+2. Run the restore script: `./restore.sh`
+3. Deploy containers: `docker-compose -f backup-compose.yml up -d`
+
+## Manual Restore
+
+1. Copy original compose and env files to your compose directory
+2. Import container metadata into Composr
+3. Deploy individual compose files as needed
+
+## Container Metadata
+
+Each container in `backup-compose.yml` includes labels with:
+- Original container name and status
+- Custom tags and URLs from Composr
+- Original Docker labels and compose project info
+- Backup timestamp and version info
+
+## Notes
+
+- Volume data is NOT included - backup volumes separately
+- Network configurations assume external networks exist
+- Container settings may need adjustment for different environments
+- Review `backup-metadata.json` for complete container details
+"""
+    
+    return readme
+
+@app.route('/api/backup/restore', methods=['POST'])
+def restore_backup():
+    """Restore containers and metadata from backup file"""
+    try:
+        if 'backup_file' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No backup file provided'})
+        
+        backup_file = request.files['backup_file']
+        if backup_file.filename == '':
+            return jsonify({'status': 'error', 'message': 'No file selected'})
+        
+        # Create temporary directory for extraction
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Save uploaded file
+            zip_path = os.path.join(temp_dir, 'backup.zip')
+            backup_file.save(zip_path)
+            
+            # Extract backup
+            extract_dir = os.path.join(temp_dir, 'extracted')
+            with zipfile.ZipFile(zip_path, 'r') as zipf:
+                zipf.extractall(extract_dir)
+            
+            # Read backup metadata
+            metadata_path = os.path.join(extract_dir, 'backup-metadata.json')
+            if not os.path.exists(metadata_path):
+                return jsonify({'status': 'error', 'message': 'Invalid backup file - missing metadata'})
+            
+            with open(metadata_path, 'r') as f:
+                backup_metadata = json.load(f)
+            
+            # Restore compose files
+            compose_files_restored = []
+            compose_files_dir = os.path.join(extract_dir, 'original-compose-files')
+            if os.path.exists(compose_files_dir):
+                for root, dirs, files in os.walk(compose_files_dir):
+                    for file in files:
+                        src_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(src_path, compose_files_dir)
+                        dst_path = os.path.join(COMPOSE_DIR, rel_path)
+                        
+                        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                        shutil.copy2(src_path, dst_path)
+                        compose_files_restored.append(rel_path)
+            
+            # Restore env files
+            env_files_restored = []
+            env_files_dir = os.path.join(extract_dir, 'env-files')
+            if os.path.exists(env_files_dir):
+                for root, dirs, files in os.walk(env_files_dir):
+                    for file in files:
+                        src_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(src_path, env_files_dir)
+                        dst_path = os.path.join(COMPOSE_DIR, rel_path)
+                        
+                        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                        shutil.copy2(src_path, dst_path)
+                        env_files_restored.append(rel_path)
+            
+            # Restore container metadata (tags, custom URLs)
+            container_metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
+            for container_info in backup_metadata['containers']:
+                container_name = container_info['name']
+                if container_info.get('tags') or container_info.get('custom_url'):
+                    if container_name not in container_metadata:
+                        container_metadata[container_name] = {}
+                    
+                    if container_info.get('tags'):
+                        container_metadata[container_name]['tags'] = container_info['tags']
+                    
+                    if container_info.get('custom_url'):
+                        container_metadata[container_name]['custom_url'] = container_info['custom_url']
+            
+            # Save updated metadata
+            save_container_metadata(container_metadata, CONTAINER_METADATA_FILE, logger)
+            
+            # Copy backup compose file to compose directory for reference
+            backup_compose_src = os.path.join(extract_dir, 'backup-compose.yml')
+            if os.path.exists(backup_compose_src):
+                backup_compose_dst = os.path.join(COMPOSE_DIR, f"backup-{backup_metadata['backup_info']['name']}.yml")
+                shutil.copy2(backup_compose_src, backup_compose_dst)
+            
+            return jsonify({
+                'status': 'success',
+                'message': f"Backup restored successfully",
+                'backup_info': backup_metadata['backup_info'],
+                'restored': {
+                    'compose_files': len(compose_files_restored),
+                    'env_files': len(env_files_restored),
+                    'container_metadata': len([c for c in backup_metadata['containers'] if c.get('tags') or c.get('custom_url')])
+                }
+            })
+    
+    except Exception as e:
+        logger.error(f"Failed to restore backup: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/backup/preview', methods=['POST'])
+def preview_backup():
+    """Preview what would be included in a backup without creating it"""
+    try:
+        if client is None:
+            return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+        
+        # Count containers
+        containers = client.containers.list(all=True)
+        container_count = len(containers)
+        
+        # Count compose files
+        compose_files = get_compose_files_cached(COMPOSE_DIR, tuple(EXTRA_COMPOSE_DIRS))
+        compose_count = len(compose_files)
+        
+        # Count env files
+        env_count = 0
+        search_dirs = [COMPOSE_DIR] + [d for d in EXTRA_COMPOSE_DIRS if d and isinstance(d, str)]
+        for search_dir in search_dirs:
+            if os.path.exists(search_dir):
+                for root, dirs, files in os.walk(search_dir):
+                    env_count += files.count('.env')
+        
+        # Get container metadata count
+        container_metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
+        metadata_count = len([name for name, meta in container_metadata.items() 
+                            if meta.get('tags') or meta.get('custom_url')])
+        
+        return jsonify({
+            'status': 'success',
+            'preview': {
+                'containers': container_count,
+                'compose_files': compose_count,
+                'env_files': env_count,
+                'container_metadata': metadata_count,
+                'estimated_size': 'Small (< 1MB)'  # These are just config files
+            }
+        })
+    
+    except Exception as e:
+        logger.error(f"Failed to preview backup: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
 
 # Basic API endpoints for host bookmarks
 @app.route('/api/docker/hosts')
@@ -494,7 +1111,7 @@ def container_action(id, action):
                 try:
                     logger.info(f"Using docker-compose to {action} container {container.name} (service: {service})")
                     result = subprocess.run(
-                        ["docker", "compose", "-f", compose_file, valid_actions[action], service],
+                        ["docker-compose", "-f", compose_file, valid_actions[action], service],
                         check=True,
                         cwd=compose_dir,
                         env=env,
@@ -550,7 +1167,7 @@ def remove_container(id):
                 try:
                     logger.info(f"Using docker-compose to remove container {container.name} (service: {service})")
                     result = subprocess.run(
-                        ["docker", "compose", "-f", compose_file, "rm", "-sf", service],
+                        ["docker-compose", "-f", compose_file, "rm", "-sf", service],
                         check=True,
                         cwd=compose_dir,
                         env=env,
@@ -601,7 +1218,7 @@ def repull_container(id):
                     # Pull the latest image
                     logger.info(f"Using docker-compose to pull image for {container.name} (service: {service})")
                     pull_result = subprocess.run(
-                        ["docker", "compose", "-f", compose_file, "pull", service],
+                        ["docker-compose", "-f", compose_file, "pull", service],
                         check=True,
                         cwd=compose_dir,
                         env=env,
@@ -613,7 +1230,7 @@ def repull_container(id):
                     # Down and up this service
                     logger.info(f"Using docker-compose to recreate {container.name} (service: {service})")
                     up_result = subprocess.run(
-                        ["docker", "compose", "-f", compose_file, "up", "-d", "--force-recreate", service],
+                        ["docker-compose", "-f", compose_file, "up", "-d", "--force-recreate", service],
                         check=True,
                         cwd=compose_dir,
                         env=env,
@@ -987,7 +1604,7 @@ def apply_compose():
             logger.info("Pulling latest images...")
             try:
                 result = log_command(
-                    ["docker", "compose", "-f", compose_filename, "pull"],
+                    ["docker-compose", "-f", compose_filename, "pull"],
                     compose_dir
                 )
                 logger.info(f"Pull completed: {result.stdout}")
@@ -999,7 +1616,7 @@ def apply_compose():
         logger.info("Stopping containers...")
         try:
             result = log_command(
-                ["docker", "compose", "-f", compose_filename, "down"],
+                ["docker-compose", "-f", compose_filename, "down"],
                 compose_dir
             )
             logger.info(f"Down completed: {result.stdout}")
@@ -1011,7 +1628,7 @@ def apply_compose():
         logger.info("Starting containers...")
         try:
             result = log_command(
-                ["docker", "compose", "-f", compose_filename, "up", "-d"],
+                ["docker-compose", "-f", compose_filename, "up", "-d"],
                 compose_dir
             )
             logger.info(f"Up completed: {result.stdout}")
@@ -1565,7 +2182,7 @@ def perform_batch_action(action, container_ids):
                 continue
             
             # Execute the action on all services at once
-            cmd = ["docker", "compose", "-f", compose_file]
+            cmd = ["docker-compose", "-f", compose_file]
             if action == 'remove':
                 cmd.extend(valid_actions[action].split())
             else:
@@ -1652,6 +2269,324 @@ def batch_action(action):
     except Exception as e:
         logger.error(f"Failed to perform batch {action}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
+# Add near your other API endpoints in app.py
+
+@app.route('/api/compose/templates')
+def get_compose_templates():
+    """Get available templates for new projects"""
+    # For now, we'll return a simple generic template
+    generic_template = {
+        "name": "Generic",
+        "description": "A basic template with one service",
+        "compose": """version: '3.8'
+
+services:
+  app:
+    image: ${IMAGE}  # Example: nginx:latest
+    container_name: ${PROJECT_NAME}_app
+    ports:
+      - "${PORT}:80"  # Example: 8080:80
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env  # Will use the .env file in the same directory
+    environment:
+      # Additional environment variables can be defined here
+      - ADDITIONAL_VAR=value
+    restart: unless-stopped
+
+volumes:
+  data:
+    # Optional volume configuration
+
+networks:
+  default:
+    # Optional network configuration
+"""
+    }
     
+    # Environment variables template
+    env_template = """# Docker image to use
+IMAGE=nginx:latest
+
+# External port to expose
+PORT=8080
+
+# Other environment variables
+ADDITIONAL_VAR=value
+"""
+    
+    templates = [
+        {
+            "id": "generic",
+            "name": "Generic Service",
+            "description": "A basic template with one service",
+            "compose_content": generic_template["compose"],
+            "env_content": env_template
+        }
+    ]
+    
+    return jsonify({'status': 'success', 'templates': templates})
+@app.route('/api/compose/extract-env-from-content', methods=['POST'])
+def extract_env_from_content():
+    """Extract environment variables from compose file content"""
+    try:
+        data = request.json
+        if not data or 'content' not in data:
+            return jsonify({'status': 'error', 'message': 'No compose content provided'})
+       
+        compose_content = data['content']
+       
+        # Write to a temporary file
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as tmp:
+            tmp.write(compose_content)
+            temp_file = tmp.name
+       
+        try:
+            # Use the existing extract function - FIXED LINE
+            env_content, _ = extract_env_from_compose(temp_file, False, logger)
+           
+            # Clean up temp file
+            os.unlink(temp_file)
+           
+            if not env_content:
+                return jsonify({'status': 'error', 'message': 'Failed to extract environment variables'})
+           
+            return jsonify({
+                'status': 'success',
+                'content': env_content
+            })
+        except Exception as e:
+            # Make sure to clean up the temp file even if there's an error
+            try:
+                os.unlink(temp_file)
+            except:
+                pass
+            raise e
+    except Exception as e:
+        logger.error(f"Failed to extract environment variables: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+def extract_env_from_compose(compose_file_path, modify_compose=False, logger=None):
+    """Extract environment variables from a docker-compose file"""
+    try:
+        import yaml
+        
+        with open(compose_file_path, 'r') as f:
+            compose_data = yaml.safe_load(f)
+        
+        if not compose_data or 'services' not in compose_data:
+            return None, False
+        
+        env_vars = []
+        compose_modified = False
+        
+        # Add header
+        from datetime import datetime
+        env_vars.append("# Auto-generated .env file from compose")
+        env_vars.append(f"# Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        env_vars.append("")
+        
+        # Process each service
+        for service_name, service_config in compose_data['services'].items():
+            if not isinstance(service_config, dict):
+                continue
+                
+            env_vars.append(f"# Variables for {service_name} service")
+            
+            # Extract image
+            if 'image' in service_config:
+                image = service_config['image']
+                var_name = f"{service_name.upper()}_IMAGE"
+                env_vars.append(f"{var_name}={image}")
+                
+                if modify_compose:
+                    service_config['image'] = f"${{{var_name}}}"
+                    compose_modified = True
+            
+            # Extract ports
+            if 'ports' in service_config:
+                ports = service_config['ports']
+                if isinstance(ports, list) and ports:
+                    for i, port in enumerate(ports):
+                        if ':' in str(port):
+                            external_port = str(port).split(':')[0].strip('"\'')
+                            var_name = f"{service_name.upper()}_PORT"
+                            if i > 0:
+                                var_name += f"_{i+1}"
+                            env_vars.append(f"{var_name}={external_port}")
+                            
+                            if modify_compose:
+                                internal_port = str(port).split(':')[1].strip('"\'')
+                                ports[i] = f"${{{var_name}}}:{internal_port}"
+                                compose_modified = True
+            
+            # Extract existing environment variables
+            if 'environment' in service_config:
+                env_list = service_config['environment']
+                if isinstance(env_list, list):
+                    for env_item in env_list:
+                        if '=' in str(env_item):
+                            env_vars.append(str(env_item))
+                elif isinstance(env_list, dict):
+                    for key, value in env_list.items():
+                        env_vars.append(f"{key}={value}")
+            
+            env_vars.append("")  # Empty line between services
+        
+        # Save modified compose file if requested
+        if modify_compose and compose_modified:
+            with open(compose_file_path, 'w') as f:
+                yaml.dump(compose_data, f, default_flow_style=False)
+        
+        return '\n'.join(env_vars), compose_modified
+        
+    except Exception as e:
+        if logger:
+            logger.error(f"Error extracting env vars: {e}")
+        return None, False
+    
+
+    
+@app.route('/api/compose/available-locations')
+def get_available_locations():
+    """Get available locations for new projects"""
+    try:
+        locations = []
+        
+        # Add COMPOSE_DIR
+        compose_dir_name = os.path.basename(COMPOSE_DIR)
+        locations.append({
+            'path': 'default',
+            'container_path': COMPOSE_DIR,
+            'display_name': f'Main directory ({compose_dir_name})'
+        })
+        
+        # FIX: Handle EXTRA_COMPOSE_DIRS properly
+        extra_dirs = EXTRA_COMPOSE_DIRS
+        if isinstance(extra_dirs, str):
+            extra_dirs = extra_dirs.split(':') if extra_dirs else []
+        
+        for i, dir_path in enumerate(extra_dirs):
+            if dir_path and os.path.exists(dir_path):
+                dir_name = os.path.basename(dir_path)
+                locations.append({
+                    'path': f'extra_{i}',
+                    'container_path': dir_path,
+                    'display_name': f'Projects directory ({dir_name})'
+                })
+        
+        return jsonify({
+            'status': 'success',
+            'locations': locations
+        })
+    except Exception as e:
+        logger.error(f"Failed to get available locations: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+       
+@app.route('/api/compose/create', methods=['POST'])
+def create_compose_project():
+    print("DEBUG: /api/compose/create endpoint hit!")
+    print(f"DEBUG: Request method: {request.method}")
+    print(f"DEBUG: Request data: {request.json}")
+    
+    try:
+        data = request.json
+        if not data or 'project_name' not in data:
+            return jsonify({'status': 'error', 'message': 'Project name is required'})
+            
+        project_name = data['project_name']
+        location_type = data.get('location_type', 'default')
+        
+        # Validate project name (no special characters except underscore and hyphen)
+        if not re.match(r'^[a-zA-Z0-9_-]+$', project_name):
+            return jsonify({
+                'status': 'error',
+                'message': 'Project name can only contain letters, numbers, underscores and hyphens'
+            })
+        
+        # FIX: Determine project directory based on location_type
+        if location_type == 'default':
+            project_dir = os.path.join(COMPOSE_DIR, project_name)
+        elif location_type.startswith('extra_'):
+            # Extract index from extra_N
+            try:
+                extra_index = int(location_type.split('_')[1])
+                # FIX: Convert EXTRA_COMPOSE_DIRS to list if it's a string
+                extra_dirs = EXTRA_COMPOSE_DIRS
+                if isinstance(extra_dirs, str):
+                    extra_dirs = extra_dirs.split(':') if extra_dirs else []
+                
+                if 0 <= extra_index < len(extra_dirs) and extra_dirs[extra_index]:
+                    extra_dir = extra_dirs[extra_index]
+                    project_dir = os.path.join(extra_dir, project_name)
+                    print(f"DEBUG: Using extra directory: {extra_dir}")
+                    print(f"DEBUG: Project directory will be: {project_dir}")
+                else:
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Invalid project location index: {extra_index}'
+                    })
+            except (ValueError, IndexError) as e:
+                print(f"DEBUG: Error parsing location_type: {e}")
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Invalid location format'
+                })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid project location'
+            })
+        
+        print(f"DEBUG: Final project directory: {project_dir}")
+        
+        # Check if directory already exists
+        if os.path.exists(project_dir):
+            return jsonify({
+                'status': 'error',
+                'message': f'Project directory {project_dir} already exists'
+            })
+            
+        # Create project directory
+        os.makedirs(project_dir, exist_ok=True)
+        print(f"DEBUG: Created directory: {project_dir}")
+        
+        # Create docker-compose.yml file
+        compose_content = data.get('compose_content', '')
+        compose_file_path = os.path.join(project_dir, 'docker-compose.yml')
+        with open(compose_file_path, 'w') as f:
+            f.write(compose_content)
+        print(f"DEBUG: Created compose file: {compose_file_path}")
+            
+        # FIX: Create .env file if requested - check the correct fields
+        create_env_file = data.get('create_env_file', False)
+        env_content = data.get('env_content', '')
+        
+        print(f"DEBUG: create_env_file = {create_env_file}")
+        print(f"DEBUG: env_content length = {len(env_content) if env_content else 0}")
+        
+        if create_env_file and env_content:
+            env_file_path = os.path.join(project_dir, '.env')
+            with open(env_file_path, 'w') as f:
+                f.write(env_content)
+            print(f"DEBUG: Created .env file: {env_file_path}")
+        elif create_env_file:
+            print("DEBUG: create_env_file is True but no env_content provided")
+                
+        logger.info(f"Created new project: {project_name} in {project_dir}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Project {project_name} created successfully in {project_dir}',
+            'project': {
+                'name': project_name,
+                'path': project_dir,
+                'compose_file': os.path.join(project_name, 'docker-compose.yml') 
+            }
+        })
+    except Exception as e:
+        logger.error(f"Failed to create project: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': f'Failed to create project: {str(e)}'})
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5003, debug=False)

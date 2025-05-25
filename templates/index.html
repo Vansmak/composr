@@ -8,8 +8,27 @@
     <link rel="stylesheet" href="/static/css/editor.css">
     <link rel="stylesheet" href="/static/css/remote.css">
     
-    <!-- Monaco Editor Loader -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
+    
+    <!-- Replace all CodeMirror scripts with this simpler version -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/shell/shell.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/darcula.min.css">
+
+    <script>
+        // Make CodeMirror available in the expected format
+        window.CodeMirror = {
+            fromTextArea: CodeMirror.fromTextArea,
+            modes: {
+                yaml: 'yaml',
+                shell: 'shell', 
+                javascript: 'javascript'
+            }
+        };
+        console.log('CodeMirror 5 loaded successfully');
+    </script>
 </head>
 <body>
     <div class="container">
@@ -92,6 +111,10 @@
                 <span class="tab-icon">🖥️</span>
                 <span class="tab-text">Hosts</span>
             </button>
+            <button class="tab" onclick="switchTab('backup')">
+                <span class="tab-icon">💾</span>
+                <span class="tab-text">Backup</span>
+            </button>
         </div>
         <div class="filter-controls">
             <!-- Batch mode toggle -->
@@ -112,8 +135,6 @@
                     <option value="">Tag</option>
                 </select>
                 
-                
-                
                 <select id="status-filter" class="filter-select">
                     <option value="">Status</option>
                     <option value="running">Running</option>
@@ -124,7 +145,6 @@
                     <option value="none">Group by</option>
                     <option value="stack">Compose</option>
                     <option value="tag">Tag</option>
-                    
                 </select>
                 
                 <select id="sort-filter" class="filter-select">
@@ -156,7 +176,6 @@
         
         <!-- Containers Tab -->
         <div id="containers-tab" class="tab-content active">
-            
             <div id="no-containers" class="no-containers" style="display: none;">No containers found.</div>
             <div id="grid-view" class="view active">
                 <div id="containers-list" class="container-grid"></div>
@@ -173,7 +192,6 @@
                             <th onclick="sortTable('name')">Name</th>
                             <th>Stack</th>
                             <th>Tags</th>
-                            
                             <th onclick="sortTable('status')">Status</th>
                             <th onclick="sortTable('uptime')">Uptime</th>
                             <th onclick="sortTable('cpu')">CPU</th>
@@ -185,6 +203,7 @@
                 </table>
             </div>
         </div>
+        
         <div id="hosts-tab" class="tab-content">
             <div class="hosts-management">
                 <h3>Composr Instance Bookmarks</h3>
@@ -227,16 +246,18 @@
                 </div>
             </div>
         </div>
-    </div>
+        
         <!-- Config Tab with subtabs -->
         <div id="config-tab" class="tab-content">
             <div class="config-subtabs">
                 <button class="subtab active" onclick="switchSubTab('compose')">Compose</button>
                 <button class="subtab" onclick="switchSubTab('env')">Env</button>
+                <button class="subtab" onclick="switchSubTab('create')">Create</button>
                 <button id="caddy-tab" class="subtab" onclick="switchSubTab('caddy')">Caddy</button>
             </div>
             
             <!-- Compose Config -->
+            <!-- Update the compose subtab actions in index.html -->
             <div id="compose-subtab" class="subtab-content active">
                 <div class="compose-file-selector">
                     <select id="compose-files" onchange="loadSelectedFile()">
@@ -244,11 +265,13 @@
                     </select>
                     <button onclick="scanComposeFiles()" class="scan-btn">Scan</button>
                 </div>
+
                 <textarea id="compose-editor"></textarea>
                 <div class="editor-actions">
                     <button onclick="saveCompose()" class="btn btn-primary">Save</button>
                     <button onclick="composeAction('restart')" class="btn btn-success">Restart</button>
-                    <button onclick="extractEnvVarsToClipboard()" class="btn btn-primary">Extract Env</button>
+                    <button class="btn btn-secondary" onclick="extractEnvFromCompose()">Extract & Create .env</button>
+                    <p class="help-text">Extract environment variables and create a new .env file</p>
                 </div>
             </div>
             
@@ -263,6 +286,105 @@
                 <textarea id="env-editor"></textarea>
                 <div class="editor-actions">
                     <button onclick="saveEnvFile()" class="btn btn-primary">Save</button>
+                </div>
+            </div>
+            
+            <!-- Create New Project Subtab -->
+            <div id="create-subtab" class="subtab-content">
+                <div class="project-creation-form" style="display: block;" id="project-creation-form">
+                    <h3 class="form-title">Create New Project</h3>
+                    <div id="create-project-form">
+                        <!-- Step 1: Project info and compose file -->
+                        <div class="form-step active" id="step-project-info">
+                            <div class="step-title">
+                                <div class="step-number">1</div>
+                                <h4>Project Information</h4>
+                            </div>
+                            <div class="form-group">
+                                <label for="project-name">Project Name:</label>
+                                <input type="text" id="project-name" placeholder="my-awesome-project">
+                            </div>
+                            <div class="form-group">
+                                <label for="project-location">Project Location:</label>
+                                <select id="project-location">
+                                    <!-- Will be populated by loadProjectLocations() -->
+                                </select>
+                                <p class="help-text">The project will be created as a new directory in the selected location</p>
+                            </div>
+                            <div class="form-group" id="custom-location-group" style="display: none;">
+                                <label for="custom-path">Custom Path:</label>
+                                <input type="text" id="custom-path" placeholder="/path/to/your/projects">
+                            </div>
+                            <div class="form-group">
+                                <label>Template:</label>
+                                <div class="template-info">Default Template</div>
+                            </div>
+                            <div class="form-group">
+                                <label for="compose-content">docker-compose.yml:</label>
+                                <textarea id="compose-content" spellcheck="false"></textarea>
+                            </div>
+                            <div class="form-actions">
+                                <button class="btn btn-secondary" onclick="switchSubTab('compose')">Cancel</button>
+                                <button class="btn btn-primary" onclick="goToStep(2)">Next: Environment Variables</button>
+                            </div>
+                        </div>
+
+                        <!-- Step 2: Environment variables -->
+                        <div class="form-step" id="step-env-vars">
+                            <div class="step-title">
+                                <div class="step-number">2</div>
+                                <h4>Environment Variables</h4>
+                            </div>
+                            <div class="form-group">
+                                <label for="create-env-file">
+                                    <input type="checkbox" id="create-env-file" checked> 
+                                    Create .env file for environment variables
+                                </label>
+                            </div>
+                            <div id="env-file-options">
+                                <div class="form-group">
+                                    <button class="btn btn-secondary" onclick="extractEnvFromCompose()">Extract Variables from Compose</button>
+                                    <p class="help-text">Extract environment variables defined in the compose file</p>
+                                </div>
+                                <div class="form-group">
+                                    <label for="env-content">.env file content:</label>
+                                    <textarea id="env-content" spellcheck="false"></textarea>
+                                </div>
+                            </div>
+                            <div class="form-actions">
+                                <button class="btn btn-secondary" onclick="switchSubTab('compose')">Cancel</button>
+                                <button class="btn btn-secondary" onclick="goToStep(1)">Back</button>
+                                <button class="btn btn-primary" onclick="goToStep(3)">Next: Review</button>
+                            </div>
+                        </div>
+
+                        <!-- Step 3: Review and create -->
+                        <div class="form-step" id="step-project-review">
+                            <div class="step-title">
+                                <div class="step-number">3</div>
+                                <h4>Review & Create</h4>
+                            </div>
+                            <div class="project-preview">
+                                <p>Project <strong id="preview-project-name">project-name</strong> will be created in <strong id="preview-location">default directory</strong>.</p>
+                                
+                                <div class="preview-file">
+                                    <h4><span class="preview-file-icon">📄</span> docker-compose.yml</h4>
+                                    <div class="preview-content" id="preview-compose-content"></div>
+                                </div>
+                                
+                                <div class="preview-file" id="preview-env-file">
+                                    <h4><span class="preview-file-icon">📄</span> .env</h4>
+                                    <div class="preview-content" id="preview-env-content"></div>
+                                </div>
+                            </div>
+                            <div class="form-actions">
+                                <button class="btn btn-secondary" onclick="switchSubTab('compose')">Cancel</button>
+                                <button class="btn btn-secondary" onclick="goToStep(2)">Back</button>
+                                <button class="btn btn-success" onclick="createProject()">Create Project</button>
+                                <button class="btn btn-primary" onclick="createAndDeployProject()">Create & Deploy</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             
@@ -306,11 +428,88 @@
             </div>
         </div>
     </div>
-    
+    <div id="backup-tab" class="tab-content">
+        <div class="backup-management">
+            <div class="backup-sections">
+                <!-- Create Backup Section -->
+                <div class="backup-section">
+                    <h3>📦 Create Backup</h3>
+                    
+                    <div class="backup-preview-card">
+                        <div id="backup-preview">
+                            <div class="backup-preview-loading">Loading...</div>
+                        </div>
+                    </div>
+                    
+                    <div class="backup-form">
+                        <div class="form-group">
+                            <label for="backup-name">Backup Name:</label>
+                            <input type="text" id="backup-name" placeholder="backup-20240115-1030" 
+                                class="backup-input">
+                        </div>
+                        
+                        <div class="backup-options">
+                            <div class="checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="include-compose-files" checked>
+                                    Include compose files
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="include-env-files" checked>
+                                    Include .env files
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="backup-actions">
+                            <button class="btn btn-success" onclick="createBackup()">
+                                📦 Create Backup
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Restore Backup Section -->
+                <div class="backup-section">
+                    <h3>📂 Restore Backup</h3>
+                    
+                    <div class="restore-form">
+                        <div class="file-upload">
+                            <input type="file" id="backup-file-input" accept=".zip" 
+                                onchange="handleBackupFileSelect()" style="display: none;">
+                            <button class="btn btn-secondary" onclick="document.getElementById('backup-file-input').click()">
+                                📁 Select Backup File
+                            </button>
+                            <div id="selected-file-name" class="selected-file" style="display: none;"></div>
+                        </div>
+                        
+                        <div class="restore-actions">
+                            <button class="btn btn-primary" onclick="restoreBackup()">
+                                🔄 Restore Backup
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="restore-info">
+                        <p><strong>Restores:</strong> Compose files, .env files, container tags & URLs</p>
+                        <p><strong>Note:</strong> Volume data not included - backup separately</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Last Backup Info -->
+            <div class="backup-history-section">
+                <div id="backup-history">
+                    <div class="backup-history-loading">Loading history...</div>
+                </div>
+            </div>
+        </div>
+    </div>
     <!-- Scripts -->
     <script src="/static/js/editor.js"></script>
     <script src="/static/js/main.js"></script>
     <script src="/static/js/table-view.js"></script>
     <script src="/static/js/remote.js"></script>
+    <script src="/static/js/backup.js"></script>
 </body>
 </html>
