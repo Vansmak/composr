@@ -1,6 +1,30 @@
 # Changelog
 All notable changes to Composr will be documented in this file.
 
+## [1.6.1] - 2025-06-01
+Changed
+
+    Container Display: Replaced CPU/Memory stats with port mappings in main container view
+        Container cards now show exposed ports (e.g., "8080:80, 443:443") instead of resource usage
+        Table view has single "Ports" column instead of separate CPU/Memory columns
+        CPU and Memory stats moved to detailed container popup for better organization
+        "No ports" displayed for containers without exposed ports
+
+Fixed
+
+    Table View Controls: Fixed button placement and filter synchronization issues
+        Toggle view button now appears in correct column (Ports, not Actions)
+        Group By filter now works properly in table view
+        Improved bidirectional sync between table and grid view filters
+
+Technical
+
+    Enhanced container data fetching to include port information via inspection API
+    Updated table column structure from 10 to 8 columns
+    Added responsive CSS styling for port display across all themes
+    Maintained backward compatibility with existing sorting and filtering
+
+
 ## [1.6.0] - 2025-05-25
 ### Added
 - **Project Creation Tool**: New "Create" subtab with step-by-step project wizard

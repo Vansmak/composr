@@ -588,6 +588,7 @@ function renderContainersByHost(containers) {
         });
     });
 }
+
 function renderSingleContainer(container, parentElement) {
     const isBatchMode = document.getElementById('containers-list').classList.contains('batch-mode');
     const card = document.createElement('div');
@@ -596,7 +597,6 @@ function renderSingleContainer(container, parentElement) {
     card.dataset.cpu = container.cpu_percent;
     card.dataset.memory = container.memory_usage;
     const uptimeDisplay = container.uptime && container.uptime.display ? container.uptime.display : 'N/A';
-    // Removed uptimeLong logic to ensure consistent color
 
     // Create tags HTML
     let tagsHtml = '';
@@ -610,6 +610,22 @@ function renderSingleContainer(container, parentElement) {
         tagsHtml = '<div class="container-tags"></div>';
     }
 
+    // NEW: Create ports HTML
+    let portsHtml = '';
+    if (container.ports && Object.keys(container.ports).length > 0) {
+        const portsList = Object.entries(container.ports)
+            .map(([hostPort, containerPort]) => `${hostPort}:${containerPort}`)
+            .slice(0, 3) // Show max 3 ports to avoid clutter
+            .join(', ');
+        
+        const remainingPorts = Object.keys(container.ports).length - 3;
+        const portsText = remainingPorts > 0 ? `${portsList} +${remainingPorts} more` : portsList;
+        
+        portsHtml = `<div class="container-ports" title="Port mappings">${portsText}</div>`;
+    } else {
+        portsHtml = '<div class="container-ports" title="No exposed ports">No ports</div>';
+    }
+
     card.innerHTML = `
         <div class="container-header">
             <span class="container-name" onclick="openCustomContainerURL('${container.id}')" title="${container.name}">${container.name}</span>
@@ -621,9 +637,7 @@ function renderSingleContainer(container, parentElement) {
         </div>
         <div class="container-body">
             ${tagsHtml}
-            <div class="container-stats">
-                CPU: ${container.cpu_percent}% | Memory: ${container.memory_usage} MB
-            </div>
+            ${portsHtml}
             <div class="actions">
                 <button class="btn btn-success" onclick="containerAction('${container.id}', 'start')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
                 <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
@@ -644,6 +658,7 @@ function renderSingleContainer(container, parentElement) {
         card.appendChild(checkbox);
     }
 }
+
 // Toggle between grid and table view for images
 function toggleImageView() {
     const gridView = document.getElementById('images-grid-view');
@@ -677,21 +692,17 @@ async function refreshContainers(sortKey = null, sortDirection = 'asc') {
             if (filterControls) {
                 filterControls.style.display = 'none';
             }
-            // Ensure controls are in table
             moveControlsToTable();
         }
         
-        // GET ALL THE FILTER VALUES HERE (before using them)
         const search = document.getElementById('search-input').value || '';
         const status = document.getElementById('status-filter').value || document.getElementById('status-filter-mobile').value || '';
         const tag = document.getElementById('tag-filter').value || document.getElementById('tag-filter-mobile').value || '';
         const stack = document.getElementById('stack-filter').value || document.getElementById('stack-filter-mobile').value || '';
         const group = document.getElementById('group-filter').value || document.getElementById('group-filter-mobile').value || 'none';
         
-        // Use provided sort parameters or fall back to dropdown value
         const sort = sortKey || document.getElementById('sort-filter').value || document.getElementById('sort-filter-mobile').value || 'name';
 
-        // Simplified URL creation - always use standard endpoint
         const url = `/api/containers?search=${encodeURIComponent(search)}&status=${status}&tag=${encodeURIComponent(tag)}&stack=${encodeURIComponent(stack)}&sort=${sort}&direction=${sortDirection}&nocache=${Date.now()}`;
 
         const response = await fetch(url);
@@ -700,11 +711,38 @@ async function refreshContainers(sortKey = null, sortDirection = 'asc') {
         }
 
         const containers = await response.json();
-        renderContainers(containers);
+        
+        // NEW: Enhance container data with port information
+        const enhancedContainers = await Promise.all(containers.map(async (container) => {
+            try {
+                // Get detailed container info to extract ports
+                const inspectResponse = await fetch(`/api/container/${container.id}/inspect`);
+                const inspectData = await inspectResponse.json();
+                
+                if (inspectData.status === 'success') {
+                    const portBindings = inspectData.data.HostConfig?.PortBindings || {};
+                    const ports = {};
+                    
+                    for (const [containerPort, hostConfig] of Object.entries(portBindings)) {
+                        if (hostConfig && hostConfig[0] && hostConfig[0].HostPort) {
+                            ports[hostConfig[0].HostPort] = containerPort;
+                        }
+                    }
+                    
+                    container.ports = ports;
+                }
+            } catch (error) {
+                console.warn(`Failed to get ports for container ${container.id}:`, error);
+                container.ports = {};
+            }
+            
+            return container;
+        }));
 
+        renderContainers(enhancedContainers);
         loadSystemStats();
 
-        if (containers.some(c => c.status === 'running')) {
+        if (enhancedContainers.some(c => c.status === 'running')) {
             if (refreshTimer) {
                 clearTimeout(refreshTimer);
             }
@@ -713,14 +751,11 @@ async function refreshContainers(sortKey = null, sortDirection = 'asc') {
             }, 30000);
         }
 
-        // Add batch actions for table view in batch mode
         if (tableView && tableView.classList.contains('active') && tableView.classList.contains('batch-mode')) {
-            // We're in table view and batch mode - make sure batch actions are visible
             const tableBatchActions = document.getElementById('table-batch-actions');
             if (tableBatchActions) {
                 tableBatchActions.style.display = 'flex';
                 
-                // If empty, populate it
                 if (tableBatchActions.children.length === 0) {
                     tableBatchActions.innerHTML = `
                         <button class="btn btn-success" onclick="batchAction('start')">Start</button>
@@ -822,43 +857,74 @@ function showContainerPopup(id, name) {
                 .then(urlData => {
                     const customUrl = urlData.url || '';
                     
-                    const popup = document.createElement('div');
-                    popup.className = 'logs-modal';
-                    popup.innerHTML = `
-                        <div class="modal-header">
-                            <h3>${name}</h3>
-                            <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
-                        </div>
-                        <div class="container-stats" style="margin-bottom: 1rem;">
-                            CPU: <span id="popup-cpu-${id}">Loading...</span>% | Memory: <span id="popup-memory-${id}">Loading...</span> MB
-                        </div>
-                        <div style="margin-bottom: 1rem;">
-                            <label>Tags (comma separated):</label>
-                            <input type="text" id="container-tags-${id}" class="url-input" value="${tags.join(', ')}">
-                        </div>
-                        <div style="margin-bottom: 1rem;">
-                            <label>Custom Launch URL:</label>
-                            <input type="text" id="container-url-${id}" class="url-input" value="${customUrl}" placeholder="http://example.com:8080">
-                        </div>
-                        <div class="actions" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
-                            <button class="btn btn-primary" onclick="saveContainerSettings('${id}', '${name}')">Save Settings</button>
-                        </div>
-                        <div class="actions" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-                            <button class="btn btn-primary" onclick="viewContainerLogs('${id}')">Logs</button>
-                            <button class="btn btn-primary" onclick="inspectContainer('${id}')">Inspect</button>
-                            <button class="btn btn-primary" onclick="showContainerImage('${id}')">Image</button>
-                            <button class="btn btn-primary" onclick="execIntoContainer('${id}', '${name}')">Terminal</button>
-                            <button class="btn btn-primary" onclick="repullContainer('${id}')">Repull</button>
-                            <button class="btn btn-error" onclick="removeContainer('${id}', '${name}')">Remove</button>
-                        </div>
-                    `;
-                    document.body.appendChild(popup);
+                    // NEW: Get port information for the popup
+                    fetch(`/api/container/${id}/inspect`)
+                        .then(response => response.json())
+                        .then(inspectData => {
+                            let portsInfo = 'No exposed ports';
+                            if (inspectData.status === 'success') {
+                                const portBindings = inspectData.data.HostConfig?.PortBindings || {};
+                                if (Object.keys(portBindings).length > 0) {
+                                    const portsList = Object.entries(portBindings)
+                                        .map(([containerPort, hostConfig]) => {
+                                            if (hostConfig && hostConfig[0] && hostConfig[0].HostPort) {
+                                                return `${hostConfig[0].HostPort}:${containerPort}`;
+                                            }
+                                            return containerPort;
+                                        })
+                                        .join(', ');
+                                    portsInfo = portsList;
+                                }
+                            }
+                            
+                            const popup = document.createElement('div');
+                            popup.className = 'logs-modal';
+                            popup.innerHTML = `
+                                <div class="modal-header">
+                                    <h3>${name}</h3>
+                                    <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
+                                </div>
+                                <div class="container-details" style="margin-bottom: 1rem;">
+                                    <div class="detail-row">
+                                        <strong>Stats:</strong> CPU: <span id="popup-cpu-${id}">Loading...</span>% | Memory: <span id="popup-memory-${id}">Loading...</span> MB
+                                    </div>
+                                    <div class="detail-row">
+                                        <strong>Ports:</strong> ${portsInfo}
+                                    </div>
+                                </div>
+                                <div style="margin-bottom: 1rem;">
+                                    <label>Tags (comma separated):</label>
+                                    <input type="text" id="container-tags-${id}" class="url-input" value="${tags.join(', ')}">
+                                </div>
+                                <div style="margin-bottom: 1rem;">
+                                    <label>Custom Launch URL:</label>
+                                    <input type="text" id="container-url-${id}" class="url-input" value="${customUrl}" placeholder="http://example.com:8080">
+                                </div>
+                                <div class="actions" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+                                    <button class="btn btn-primary" onclick="saveContainerSettings('${id}', '${name}')">Save Settings</button>
+                                </div>
+                                <div class="actions" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                                    <button class="btn btn-primary" onclick="viewContainerLogs('${id}')">Logs</button>
+                                    <button class="btn btn-primary" onclick="inspectContainer('${id}')">Inspect</button>
+                                    <button class="btn btn-primary" onclick="showContainerImage('${id}')">Image</button>
+                                    <button class="btn btn-primary" onclick="execIntoContainer('${id}', '${name}')">Terminal</button>
+                                    <button class="btn btn-primary" onclick="repullContainer('${id}')">Repull</button>
+                                    <button class="btn btn-error" onclick="removeContainer('${id}', '${name}')">Remove</button>
+                                </div>
+                            `;
+                            document.body.appendChild(popup);
 
-                    const container = document.querySelector(`[data-id="${id}"]`);
-                    if (container) {
-                        document.getElementById(`popup-cpu-${id}`).textContent = container.dataset.cpu;
-                        document.getElementById(`popup-memory-${id}`).textContent = container.dataset.memory;
-                    }
+                            // Load stats in the popup
+                            const container = document.querySelector(`[data-id="${id}"]`);
+                            if (container) {
+                                document.getElementById(`popup-cpu-${id}`).textContent = container.dataset.cpu || '0';
+                                document.getElementById(`popup-memory-${id}`).textContent = container.dataset.memory || '0';
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error getting port info:', error);
+                            // Continue without port info
+                        });
                 });
         })
         .catch(error => {
@@ -866,6 +932,7 @@ function showContainerPopup(id, name) {
             showMessage('error', 'Failed to load container settings');
         });
 }
+
 function execIntoContainer(id, name) {
     const modal = document.createElement('div');
     modal.className = 'logs-modal terminal-modal';

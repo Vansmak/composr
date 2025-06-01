@@ -27,7 +27,7 @@ while host_manager.get_client('local') is None and time.time() - start_time < 5:
     time.sleep(0.1)
 
 # Add after imports
-__version__ = "1.6.0"
+__version__ = "1.6.1"
 
 # Initialize Flask app
 app = Flask(__name__)

@@ -1769,3 +1769,105 @@ body.table-view-active #batch-actions,
         gap: 0.25rem;
     }
 }
+/* Add these CSS styles to static/css/styles.css */
+
+/* Container ports styling */
+.container-ports {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 0.25rem 0;
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+}
+
+.container-ports:empty::before {
+    content: "No ports";
+    font-style: italic;
+    opacity: 0.7;
+}
+
+/* Table ports cell styling */
+.ports-cell {
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Container details in popup */
+.container-details {
+    background: var(--bg-secondary);
+    padding: 1rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+}
+
+.detail-row {
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.detail-row:last-child {
+    margin-bottom: 0;
+}
+
+.detail-row strong {
+    color: var(--text-primary);
+    display: inline-block;
+    width: 60px;
+}
+
+/* Update container card layout to accommodate ports instead of stats */
+.container-card .container-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.container-card .container-ports {
+    order: 2; /* Place ports after tags */
+}
+
+.container-card .actions {
+    order: 3; /* Actions last */
+    margin-top: auto;
+}
+
+/* Responsive styling for ports */
+@media (max-width: 768px) {
+    .ports-cell {
+        max-width: 80px;
+        font-size: 0.75rem;
+    }
+    
+    .container-ports {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.4rem;
+    }
+}
+
+/* Theme-specific styling for ports */
+[data-theme="refined-dark"] .container-ports {
+    background: rgba(255, 255, 255, 0.05);
+    color: #b0b0b0;
+}
+
+[data-theme="night-owl"] .container-ports {
+    background: rgba(130, 170, 255, 0.1);
+    color: #82aaff;
+}
+
+[data-theme="nord"] .container-ports {
+    background: rgba(136, 192, 208, 0.1);
+    color: #88c0d0;
+}
+
+[data-theme="light-breeze"] .container-ports {
+    background: rgba(0, 0, 0, 0.05);
+    color: #666;
+}
