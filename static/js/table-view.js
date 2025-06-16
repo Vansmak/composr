@@ -1,40 +1,135 @@
+// Table-specific functions for container management
 
+// Ensure table structure exists
+function ensureTableStructure() {
+    const tableView = document.getElementById('table-view');
+    let containerTable = document.getElementById('container-table');
+    
+    if (!containerTable) {
+        console.log('Creating container table structure');
+        containerTable = document.createElement('table');
+        containerTable.id = 'container-table';
+        
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        headerRow.id = 'table-headers-row';
+        
+        const tbody = document.createElement('tbody');
+        tbody.id = 'table-body';
+        
+        thead.appendChild(headerRow);
+        containerTable.appendChild(thead);
+        containerTable.appendChild(tbody);
+        tableView.appendChild(containerTable);
+    }
+    
+    // Ensure table body exists
+    let tableBody = document.getElementById('table-body');
+    if (!tableBody) {
+        tableBody = document.createElement('tbody');
+        tableBody.id = 'table-body';
+        containerTable.appendChild(tableBody);
+    }
+    
+    // Force table to be visible and properly styled
+    containerTable.style.width = '100%';
+    containerTable.style.borderCollapse = 'collapse';
+    containerTable.style.display = 'table';
+    tableView.style.display = 'block';
+    
+    console.log('Table structure ensured');
+}
 
-// Render containers as a table
-// This should already be in table-view.js
+// Update table headers
+function updateTableHeaders() {
+    const headersRow = document.getElementById('table-headers-row');
+    if (headersRow) {
+        headersRow.innerHTML = `
+            <th><input type="checkbox" id="select-all" style="margin: 0;"></th>
+            <th onclick="sortTable('name')">Name</th>
+            <th>Stack</th>
+            <th onclick="sortTable('status')">Status</th>
+            <th onclick="sortTable('uptime')">Uptime</th>
+            <th>Ports</th>
+            <th>Host</th>
+            <th>Actions</th>
+        `;
+        
+        // Re-add select all functionality
+        const selectAllCheckbox = document.getElementById('select-all');
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener('change', (e) => {
+                const checkboxes = document.querySelectorAll('.batch-checkbox');
+                checkboxes.forEach(checkbox => {
+                    checkbox.checked = e.target.checked;
+                    const row = checkbox.closest('tr');
+                    if (row) {
+                        row.classList.toggle('selected', e.target.checked);
+                    }
+                });
+            });
+        }
+    }
+}
+
+// Main table rendering function
 function renderContainersAsTable(containers) {
     const tableView = document.getElementById('table-view');
     const tableBody = document.getElementById('table-body');
     const noContainers = document.getElementById('no-containers');
-    const group = document.getElementById('group-filter').value || document.getElementById('group-filter-mobile').value || 'none';
-
+    
+    if (!tableBody) {
+        console.error('Table body not found! Creating...');
+        ensureTableStructure();
+        return;
+    }
+    
+    // Clear existing rows
     tableBody.innerHTML = '';
-    tableView.classList.toggle('batch-mode', document.getElementById('containers-list').classList.contains('batch-mode'));
+    
+    const group = document.getElementById('group-filter').value || document.getElementById('group-filter-mobile').value || 'none';
+    
+    // Set batch mode state
+    const isBatchMode = document.getElementById('containers-list').classList.contains('batch-mode');
+    tableView.classList.toggle('batch-mode', isBatchMode);
 
     if (!Array.isArray(containers) || !containers.length) {
         noContainers.style.display = 'block';
+        const emptyRow = document.createElement('tr');
+        emptyRow.innerHTML = '<td colspan="8" class="no-containers">No containers found.</td>';
+        tableBody.appendChild(emptyRow);
         return;
     }
 
     noContainers.style.display = 'none';
+    
+    // Update table headers for current grouping
+    updateTableHeaders();
 
+    // Render based on grouping
     if (group === 'stack') {
         renderContainersByStackAsTable(containers);
-        return;
-    } else if (group === 'tag') {
-        renderContainersByTagAsTable(containers);
-        return;
     } else if (group === 'host') {
         renderContainersByHostAsTable(containers);
-        return;
-
+    } else {
+        // Render without grouping
+        containers.forEach(container => {
+            renderSingleContainerAsTableRow(container, tableBody);
+        });
     }
-
-    // Render without grouping
-    containers.forEach(container => {
-        renderSingleContainerAsTableRow(container, tableBody);
-    });
+    
+    // Force table repaint
+    const containerTable = document.getElementById('container-table');
+    if (containerTable) {
+        containerTable.style.display = 'none';
+        containerTable.offsetHeight; // Force reflow
+        containerTable.style.display = 'table';
+    }
+    
+    console.log(`Rendered ${containers.length} containers in table view`);
 }
+
+// Render containers grouped by stack in table format
 function renderContainersByStackAsTable(containers) {
     const tableBody = document.getElementById('table-body');
     let allTags = new Set();
@@ -42,7 +137,7 @@ function renderContainersByStackAsTable(containers) {
     let stackContainers = {};
 
     containers.forEach(container => {
-        const stackName = extractStackName(container);
+        const stackName = window.extractStackName(container);
         allStacks.add(stackName);
         if (!stackContainers[stackName]) {
             stackContainers[stackName] = [];
@@ -68,9 +163,9 @@ function renderContainersByStackAsTable(containers) {
     // Render each stack with its containers
     Object.keys(stackContainers).sort().forEach(stackName => {
         const stats = stackStats[stackName];
-        const composeFile = findComposeFileForStack(stackContainers[stackName]);
+        const composeFile = window.findComposeFileForStack(stackContainers[stackName]);
 
-        // Create stack header row with Details button - UPDATED COLSPAN
+        // Create stack header row
         const headerRow = document.createElement('tr');
         headerRow.className = 'stack-header-row';
         headerRow.innerHTML = `
@@ -97,13 +192,129 @@ function renderContainersByStackAsTable(containers) {
             renderSingleContainerAsTableRow(container, tableBody);
         });
     });
-
-    // Update filter options
-    updateTagFilterOptions(Array.from(allTags));
-    updateStackFilterOptions(Array.from(allStacks));
 }
 
-// Update renderContainersByTagAsTable function
+// Render containers grouped by host in table format
+function renderContainersByHostAsTable(containers) {
+    const tableBody = document.getElementById('table-body');
+    let hostGroups = {};
+    
+    // Group containers by host
+    containers.forEach(container => {
+        const host = container.host || 'local';
+        if (!hostGroups[host]) {
+            hostGroups[host] = [];
+        }
+        hostGroups[host].push(container);
+    });
+    
+    // Render each host group
+    Object.keys(hostGroups).sort().forEach(host => {
+        const hostContainers = hostGroups[host];
+        const hostDisplay = hostContainers[0]?.host_display || host;
+        
+        const stats = {
+            total: hostContainers.length,
+            running: hostContainers.filter(c => c.status === 'running').length,
+            cpu: hostContainers.reduce((sum, c) => sum + (parseFloat(c.cpu_percent) || 0), 0).toFixed(1),
+            memory: Math.round(hostContainers.reduce((sum, c) => sum + (parseFloat(c.memory_usage) || 0), 0))
+        };
+        
+        // Create host header row
+        const headerRow = document.createElement('tr');
+        headerRow.className = 'stack-header-row';
+        headerRow.innerHTML = `
+            <td colspan="8">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; font-size: 1.1rem;">🖥️ ${hostDisplay}</h3>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div class="stack-stats" style="display: flex; gap: 1rem;">
+                            <span title="Container count">${stats.running}/${stats.total} running</span>
+                            <span title="Total CPU usage">CPU: ${stats.cpu}%</span>
+                            <span title="Total memory usage">Mem: ${stats.memory} MB</span>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" onclick="showHostDetailsModal('${host}')">
+                            📊
+                        </button>    
+                    </div>
+                </div>
+            </td>
+        `;
+        tableBody.appendChild(headerRow);
+        
+        // Sort and render containers for this host
+        hostContainers.sort((a, b) => a.name.localeCompare(b.name));
+        hostContainers.forEach(container => {
+            renderSingleContainerAsTableRow(container, tableBody);
+        });
+    });
+}
+
+// Render a single container as a table row
+function renderSingleContainerAsTableRow(container, tableBody) {
+    const isBatchMode = document.getElementById('table-view').classList.contains('batch-mode');
+    const row = document.createElement('tr');
+    row.dataset.id = container.id;
+    row.dataset.host = container.host || 'local';
+    const uptimeDisplay = container.uptime && container.uptime.display ? container.uptime.display : 'N/A';
+
+    // CRITICAL FIX: Ensure host is properly passed
+    const containerHost = container.host || 'local';
+    console.log(`Rendering table row for ${container.name} with host: ${containerHost}`);
+
+    // Create ports HTML for table
+    let portsHtml = '';
+    if (container.ports && Object.keys(container.ports).length > 0) {
+        const portsList = Object.entries(container.ports)
+            .map(([hostPort, containerPort]) => `${hostPort}:${containerPort}`)
+            .slice(0, 2)
+            .join(', ');
+        
+        const remainingPorts = Object.keys(container.ports).length - 2;
+        portsHtml = remainingPorts > 0 ? `${portsList} +${remainingPorts}` : portsList;
+    } else {
+        portsHtml = 'None';
+    }
+
+    const hostDisplay = container.host_display || container.host || 'local';
+
+    row.innerHTML = `
+        <td>
+            <input type="checkbox" class="batch-checkbox" value="${container.id}" data-host="${containerHost}" style="display: ${isBatchMode ? 'inline-block' : 'none'};">
+        </td>
+        <td>
+            <span class="container-name" onclick="openCustomContainerURL('${container.id}', '${containerHost}')" title="${container.name}">${container.name}</span>
+        </td>
+        <td>${window.extractStackName(container)}</td>
+        <td>
+            <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
+        </td>
+        <td>
+            <span class="uptime-badge">${uptimeDisplay}</span>
+        </td>
+        <td class="ports-cell" title="Port mappings">${portsHtml}</td>
+        <td><span class="host-badge-small">${hostDisplay}</span></td>
+        <td>
+            <div class="table-actions">
+                <button class="btn btn-success btn-sm" onclick="containerAction('${container.id}', 'start', '${containerHost}')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
+                <button class="btn btn-error btn-sm" onclick="containerAction('${container.id}', 'stop', '${containerHost}')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
+                <button class="btn btn-primary btn-sm" onclick="containerAction('${container.id}', 'restart', '${containerHost}')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
+                <button class="btn btn-primary btn-sm" onclick="showContainerPopup('${container.id}', '${container.name}', '${containerHost}')">More</button>
+            </div>
+        </td>
+    `;
+
+    if (isBatchMode) {
+        const checkbox = row.querySelector('.batch-checkbox');
+        checkbox.addEventListener('change', (e) => {
+            row.classList.toggle('selected', e.target.checked);
+        });
+    }
+
+    tableBody.appendChild(row);
+}
+
+// Render containers grouped by tag in table format (if needed)
 function renderContainersByTagAsTable(containers) {
     const tableBody = document.getElementById('table-body');
     let groupedByTag = {};
@@ -132,662 +343,39 @@ function renderContainersByTagAsTable(containers) {
     });
 }
 
-// Update renderContainersByHostAsTable function
-function renderContainersByHostAsTable(containers) {
-    const tableBody = document.getElementById('table-body');
-    let hostGroups = {};
-    
-    // Group containers by host
-    containers.forEach(container => {
-        const host = container.host || 'local';
-        if (!hostGroups[host]) {
-            hostGroups[host] = [];
-        }
-        hostGroups[host].push(container);
-    });
-    
-    // Render each host group
-    Object.keys(hostGroups).sort().forEach(host => {
-        const hostContainers = hostGroups[host];
-        const stats = {
-            total: hostContainers.length,
-            running: hostContainers.filter(c => c.status === 'running').length,
-            cpu: hostContainers.reduce((sum, c) => sum + (parseFloat(c.cpu_percent) || 0), 0).toFixed(1),
-            memory: Math.round(hostContainers.reduce((sum, c) => sum + (parseFloat(c.memory_usage) || 0), 0))
-        };
-        
-        // Create host header row - UPDATED COLSPAN
-        const headerRow = document.createElement('tr');
-        headerRow.className = 'stack-header-row';
-        headerRow.innerHTML = `
-            <td colspan="8">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="margin: 0; font-size: 1.1rem;">${host}</h3>
-                    <div style="display: flex; align-items: center; gap: 1rem;">
-                        <div class="stack-stats" style="display: flex; gap: 1rem;">
-                            <span title="Container count">${stats.running}/${stats.total} running</span>
-                            <span title="Total CPU usage">CPU: ${stats.cpu}%</span>
-                            <span title="Total memory usage">Mem: ${stats.memory} MB</span>
-                        </div>
-                    </div>
-                </div>
-            </td>
-        `;
-        tableBody.appendChild(headerRow);
-        
-        // Sort and render containers for this host
-        hostContainers.sort((a, b) => a.name.localeCompare(b.name));
-        hostContainers.forEach(container => {
-            renderSingleContainerAsTableRow(container, tableBody);
-        });
-    });
-}
-
-// Render a single container as a table row
-function renderSingleContainerAsTableRow(container, tableBody) {
-    const isBatchMode = document.getElementById('table-view').classList.contains('batch-mode');
-    const row = document.createElement('tr');
-    row.dataset.id = container.id;
-    const uptimeDisplay = container.uptime && container.uptime.display ? container.uptime.display : 'N/A';
-
-    let tagsHtml = '';
-    if (container.tags && container.tags.length) {
-        container.tags.forEach(tag => {
-            tagsHtml += `<span class="tag-badge" onclick="filterByTag('${tag}')">${tag}</span>`;
-        });
-    }
-
-    // NEW: Create ports HTML for table
-    let portsHtml = '';
-    if (container.ports && Object.keys(container.ports).length > 0) {
-        const portsList = Object.entries(container.ports)
-            .map(([hostPort, containerPort]) => `${hostPort}:${containerPort}`)
-            .slice(0, 2) // Show max 2 ports in table to save space
-            .join(', ');
-        
-        const remainingPorts = Object.keys(container.ports).length - 2;
-        portsHtml = remainingPorts > 0 ? `${portsList} +${remainingPorts}` : portsList;
-    } else {
-        portsHtml = 'None';
-    }
-
-    row.innerHTML = `
-        <td>
-            <input type="checkbox" class="batch-checkbox" value="${container.id}">
-        </td>
-        <td>
-            <span class="container-name" onclick="openCustomContainerURL('${container.id}')" title="${container.name}">${container.name}</span>
-        </td>
-        <td>${extractStackName(container)}</td>
-        <td>${tagsHtml}</td>
-        <td>
-            <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
-        </td>
-        <td>
-            <span class="uptime-badge">${uptimeDisplay}</span>
-        </td>
-        <td class="ports-cell" title="Port mappings">${portsHtml}</td>
-        <td>
-            <div class="actions">
-                <button class="btn btn-success" onclick="containerAction('${container.id}', 'start')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
-                <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
-                <button class="btn btn-primary" onclick="containerAction('${container.id}', 'restart')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
-                <button class="btn btn-primary" onclick="showContainerPopup('${container.id}', '${container.name}')">More</button>
-            </div>
-        </td>
-    `;
-
-    if (isBatchMode) {
-        const checkbox = row.querySelector('.batch-checkbox');
-        checkbox.addEventListener('change', (e) => {
-            row.classList.toggle('selected', e.target.checked);
-        });
-    }
-
-    tableBody.appendChild(row);
-}
-
-// Fixed moveControlsToTable function in table-view.js
-// This fixes the toggle button placement and group filter sync issues
-
-function moveControlsToTable() {
-    const controlsRow = document.getElementById('table-controls-row');
-    const filterControls = document.querySelector('.filter-controls');
-    
-    if (!controlsRow || !filterControls) return;
-    
-    // Hide the original filter controls container
-    filterControls.style.display = 'none';
-    
-    // Clear any existing controls in the table
-    controlsRow.innerHTML = '';
-    
-    // Cell 1: Batch toggle (Checkbox column)
-    const batchCell = document.createElement('td');
-    const batchToggle = document.getElementById('toggle-batch-mode');
-    if (batchToggle) {
-        const clone = batchToggle.cloneNode(true);
-        clone.removeAttribute('id');
-        clone.classList.add('table-batch-toggle');
-        clone.onclick = toggleBatchMode;
-        batchCell.appendChild(clone);
-    }
-    controlsRow.appendChild(batchCell);
-    
-    // Cell 2: Search input (Name column)
-    const searchCell = document.createElement('td');
-    const searchInput = document.getElementById('search-input');
-    if (searchInput) {
-        const clone = searchInput.cloneNode(true);
-        clone.removeAttribute('id');
-        clone.placeholder = "Search...";
-        clone.style.width = "100%";
-        
-        // Bidirectional sync
-        clone.addEventListener('input', () => {
-            searchInput.value = clone.value;
-            searchInput.dispatchEvent(new Event('input'));
-        });
-        
-        searchInput.addEventListener('input', () => {
-            clone.value = searchInput.value;
-        });
-        
-        searchCell.appendChild(clone);
-    }
-    controlsRow.appendChild(searchCell);
-    
-    // Cell 3: Stack filter (Stack column)
-    const stackCell = document.createElement('td');
-    const stackFilter = document.getElementById('stack-filter');
-    if (stackFilter) {
-        const clone = stackFilter.cloneNode(true);
-        clone.removeAttribute('id');
-        clone.style.width = "100%";
-        
-        // Copy all options
-        clone.innerHTML = stackFilter.innerHTML;
-        clone.value = stackFilter.value;
-        
-        // Bidirectional sync
-        clone.addEventListener('change', () => {
-            stackFilter.value = clone.value;
-            stackFilter.dispatchEvent(new Event('change'));
-        });
-        
-        stackFilter.addEventListener('change', () => {
-            clone.value = stackFilter.value;
-        });
-        
-        stackCell.appendChild(clone);
-    }
-    controlsRow.appendChild(stackCell);
-    
-    // Cell 4: Tag filter (Tags column)
-    const tagCell = document.createElement('td');
-    const tagFilter = document.getElementById('tag-filter');
-    if (tagFilter) {
-        const clone = tagFilter.cloneNode(true);
-        clone.removeAttribute('id');
-        clone.style.width = "100%";
-        
-        // Copy all options
-        clone.innerHTML = tagFilter.innerHTML;
-        clone.value = tagFilter.value;
-        
-        // Bidirectional sync
-        clone.addEventListener('change', () => {
-            tagFilter.value = clone.value;
-            tagFilter.dispatchEvent(new Event('change'));
-        });
-        
-        tagFilter.addEventListener('change', () => {
-            clone.value = tagFilter.value;
-        });
-        
-        tagCell.appendChild(clone);
-    }
-    controlsRow.appendChild(tagCell);
-    
-    // Cell 5: Status filter (Status column)
-    const statusCell = document.createElement('td');
-    const statusFilter = document.getElementById('status-filter');
-    if (statusFilter) {
-        const clone = statusFilter.cloneNode(true);
-        clone.removeAttribute('id');
-        clone.style.width = "100%";
-        
-        // Copy all options
-        clone.innerHTML = statusFilter.innerHTML;
-        clone.value = statusFilter.value;
-        
-        // Bidirectional sync
-        clone.addEventListener('change', () => {
-            statusFilter.value = clone.value;
-            statusFilter.dispatchEvent(new Event('change'));
-        });
-        
-        statusFilter.addEventListener('change', () => {
-            clone.value = statusFilter.value;
-        });
-        
-        statusCell.appendChild(clone);
-    }
-    controlsRow.appendChild(statusCell);
-    
-    // Cell 6: Group filter (Uptime column)
-    const groupCell = document.createElement('td');
-    const groupFilter = document.getElementById('group-filter');
-    if (groupFilter) {
-        const clone = groupFilter.cloneNode(true);
-        clone.removeAttribute('id');
-        clone.style.width = "100%";
-        
-        // Copy all options - THIS IS CRUCIAL FOR GROUP BY
-        clone.innerHTML = groupFilter.innerHTML;
-        clone.value = groupFilter.value;
-        
-        // Bidirectional sync with proper event handling
-        clone.addEventListener('change', () => {
-            console.log('Table group filter changed to:', clone.value);
-            groupFilter.value = clone.value;
-            
-            // Also sync mobile version
-            const groupFilterMobile = document.getElementById('group-filter-mobile');
-            if (groupFilterMobile) {
-                groupFilterMobile.value = clone.value;
-            }
-            
-            // Trigger the change event properly
-            groupFilter.dispatchEvent(new Event('change'));
-        });
-        
-        groupFilter.addEventListener('change', () => {
-            console.log('Original group filter changed to:', groupFilter.value);
-            clone.value = groupFilter.value;
-        });
-        
-        groupCell.appendChild(clone);
-    }
-    controlsRow.appendChild(groupCell);
-    
-    // Cell 7: Buttons (Ports column) - FIXED PLACEMENT
-    const portsCell = document.createElement('td');
-    portsCell.style.display = 'flex';
-    portsCell.style.gap = '4px';
-    portsCell.style.justifyContent = 'center';
-    portsCell.style.alignItems = 'center';
-    
-    const toggleViewBtn = document.getElementById('toggle-view');
-    if (toggleViewBtn) {
-        const clone = toggleViewBtn.cloneNode(true);
-        clone.removeAttribute('id');
-        clone.onclick = toggleView;
-        clone.style.fontSize = '0.8rem';
-        clone.style.padding = '0.4rem 0.6rem';
-        portsCell.appendChild(clone);
-    }
-    
-    const refreshBtn = document.getElementById('refresh-btn');
-    if (refreshBtn) {
-        const clone = refreshBtn.cloneNode(true);
-        clone.removeAttribute('id');
-        clone.onclick = refreshContainers;
-        clone.style.fontSize = '0.8rem';
-        clone.style.padding = '0.4rem 0.6rem';
-        portsCell.appendChild(clone);
-    }
-    
-    controlsRow.appendChild(portsCell);
-    
-    // Cell 8: Batch actions (Actions column)
-    const actionsCell = document.createElement('td');
-    actionsCell.id = 'table-batch-actions-cell';
-    
-    // Create container for batch actions
-    const batchActionButtons = document.createElement('div');
-    batchActionButtons.id = 'table-batch-actions';
-    batchActionButtons.style.display = 'none'; // Hidden by default
-    batchActionButtons.style.flexWrap = 'wrap';
-    batchActionButtons.style.gap = '2px';
-    batchActionButtons.style.justifyContent = 'flex-end';
-    
-    // Add batch action buttons
-    const actions = [
-        { label: 'Start', action: 'start', class: 'btn-success' },
-        { label: 'Stop', action: 'stop', class: 'btn-error' },
-        { label: 'Restart', action: 'restart', class: 'btn-primary' },
-        { label: 'Remove', action: 'remove', class: 'btn-error' }
-    ];
-    
-    actions.forEach(item => {
-        const button = document.createElement('button');
-        button.className = `btn ${item.class}`;
-        button.textContent = item.label;
-        button.onclick = () => batchAction(item.action);
-        button.style.padding = '0.3rem 0.4rem';
-        button.style.fontSize = '0.75rem';
-        button.style.margin = '1px';
-        batchActionButtons.appendChild(button);
-    });
-    
-    actionsCell.appendChild(batchActionButtons);
-    controlsRow.appendChild(actionsCell);
-    
-    // Update button display based on batch mode
-    const isBatchMode = document.getElementById('containers-list').classList.contains('batch-mode');
-    if (isBatchMode) {
-        batchActionButtons.style.display = 'flex';
-        document.querySelector('.table-batch-toggle')?.classList.add('active');
-    } else {
-        batchActionButtons.style.display = 'none';
-        document.querySelector('.table-batch-toggle')?.classList.remove('active');
-    }
-    
-    console.log('Controls moved to table, group filter value:', groupFilter?.value);
-}
-
-// Also add this helper function to ensure group filter sync works properly
-function syncGroupFilters() {
-    const groupFilter = document.getElementById('group-filter');
-    const groupFilterMobile = document.getElementById('group-filter-mobile');
-    const tableGroupFilter = document.querySelector('#table-controls-row select:nth-child(6) select');
-    
-    if (groupFilter && groupFilterMobile) {
-        const currentValue = groupFilter.value;
-        groupFilterMobile.value = currentValue;
-        
-        // If table controls exist, sync them too
-        if (tableGroupFilter) {
-            tableGroupFilter.value = currentValue;
-        }
-    }
-}
-
-// Update the toggleView function to call syncGroupFilters
-function toggleView() {
-    const gridView = document.getElementById('grid-view');
+// Enhanced batch selection with host awareness
+function toggleAllContainers() {
     const tableView = document.getElementById('table-view');
-    const toggleButton = document.getElementById('toggle-view');
-    const filterControls = document.querySelector('.filter-controls');
-    const batchActions = document.getElementById('batch-actions');
-    const isBatchMode = document.getElementById('containers-list').classList.contains('batch-mode');
+    const isTableView = tableView && tableView.classList.contains('active');
     
-    if (gridView && gridView.classList.contains('active')) {
-        // Switch to table view
-        gridView.classList.remove('active');
-        tableView.classList.add('active');
-        saveViewPreference('table');
-       
-        // Move controls to table
-        moveControlsToTable();
+    if (isTableView) {
+        const checkboxes = document.querySelectorAll('.batch-checkbox');
+        const selectAllCheckbox = document.getElementById('select-all');
+        const allSelected = Array.from(checkboxes).every(cb => cb.checked);
         
-        // Ensure group filters are synced
-        setTimeout(syncGroupFilters, 100);
-       
-        if (toggleButton) {
-            toggleButton.textContent = '≡';
-        }
-        
-        // ALWAYS hide grid batch actions when switching to table
-        batchActions.classList.remove('visible');
-       
-        refreshContainers();
-    } else if (tableView) {
-        // Switch to grid view
-        tableView.classList.remove('active');
-        gridView.classList.add('active');
-        saveViewPreference('grid');
-       
-        // Show original filter controls
-        if (filterControls) {
-            filterControls.style.display = '';
-        }
-       
-        if (toggleButton) {
-            toggleButton.textContent = '⋮⋮';
-        }
-        
-        // Show grid batch actions only if in batch mode
-        if (batchActions && isBatchMode) {
-            batchActions.classList.add('visible');
-        }
-       
-        refreshContainers();
-    }
-}
-
-
-
-
-function createCellWithElement(element) {
-    const td = document.createElement('td');
-    if (element && element.parentNode) {
-        // Move the actual element instead of cloning
-        element.parentNode.removeChild(element);
-        td.appendChild(element);
-    }
-    return td;
-}
-// New function to create cells with centered buttons
-function createCellWithButton(element) {
-    const td = document.createElement('td');
-    if (element) {
-        const clone = element.cloneNode(true);
-        clone.removeAttribute('id');
-        
-        // Center the button
-        td.style.textAlign = 'center';
-        
-        // Copy event handlers
-        if (element.onclick) {
-            clone.onclick = element.onclick;
-        }
-        
-        td.appendChild(clone);
-    }
-    return td;
-}
-function createActionsColumnCell() {
-    const td = document.createElement('td');
-    
-    // Create container div
-    const container = document.createElement('div');
-    container.style.display = 'flex';
-    container.style.flexDirection = 'column';
-    container.style.gap = '0.5rem';
-    
-    // Create batch actions container
-    const batchActions = document.createElement('div');
-    batchActions.id = 'table-batch-actions'; /* This ID is crucial */
-    container.appendChild(batchActions);
-    
-    td.appendChild(container);
-    return td;
-}
-function createCell(element) {
-    const td = document.createElement('td');
-    if (element) {
-        const clone = element.cloneNode(true);
-        
-        // Remove ID to prevent duplicates
-        clone.removeAttribute('id');
-        
-        // Special handling for refresh button
-        if (element.id === 'refresh-btn' || element.classList.contains('refresh-btn')) {
-            clone.onclick = () => refreshContainers();
-        }
-        // Special handling for toggle view button
-        else if (element.id === 'toggle-view') {
-            clone.onclick = () => toggleView();
-        }
-        // Special handling for batch toggle
-        else if (element.id === 'toggle-batch-mode') {
-            clone.onclick = () => toggleBatchMode();
-        }
-        // Copy onclick for other elements
-        else if (element.onclick) {
-            clone.onclick = element.onclick;
-        }
-        
-        // Handle inputs and selects
-        if (element.tagName === 'INPUT' || element.tagName === 'SELECT') {
-            clone.value = element.value;
-            
-            // Special handling for search input with debouncing
-            if (element.id === 'search-input') {
-                let debounceTimer;
-                
-                clone.addEventListener('input', (e) => {
-                    // Update the original element value
-                    element.value = e.target.value;
-                    
-                    // Clear existing timer
-                    clearTimeout(debounceTimer);
-                    
-                    // Set new timer to refresh after user stops typing
-                    debounceTimer = setTimeout(() => {
-                        element.dispatchEvent(new Event('input'));
-                    }, 300); // Wait 300ms after user stops typing
-                });
-                
-                // Keep values in sync
-                element.addEventListener('input', () => {
-                    clone.value = element.value;
-                });
-            } else {
-                // For other inputs and selects, use the original sync behavior
-                clone.addEventListener('change', () => {
-                    element.value = clone.value;
-                    element.dispatchEvent(new Event('change'));
-                });
-                
-                element.addEventListener('change', () => {
-                    clone.value = element.value;
-                });
-                
-                if (element.tagName === 'INPUT') {
-                    clone.addEventListener('input', () => {
-                        element.value = clone.value;
-                        element.dispatchEvent(new Event('input'));
-                    });
-                    
-                    element.addEventListener('input', () => {
-                        clone.value = element.value;
-                    });
-                }
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = !allSelected;
+            const row = checkbox.closest('tr');
+            if (row) {
+                row.classList.toggle('selected', checkbox.checked);
             }
+        });
+        
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = !allSelected;
         }
+    } else {
+        // Grid view
+        const checkboxes = document.querySelectorAll('.container-select');
+        const allSelected = Array.from(checkboxes).every(cb => cb.checked);
         
-        td.appendChild(clone);
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = !allSelected;
+            checkbox.dispatchEvent(new Event('change'));
+        });
     }
-    return td;
 }
 
-function createNameColumnCell() {
-    const td = document.createElement('td');
-    const container = document.createElement('div');
-    container.style.display = 'flex';
-    container.style.gap = '0.5rem';
-    container.style.alignItems = 'center';
-    
-    // Add search input
-    const searchInput = document.getElementById('search-input');
-    if (searchInput) {
-        const searchClone = searchInput.cloneNode(true);
-        searchClone.removeAttribute('id');
-        searchClone.style.flex = '1';
-        container.appendChild(searchClone);
-        
-        // Sync values
-        searchClone.value = searchInput.value;
-        searchClone.addEventListener('input', () => {
-            searchInput.value = searchClone.value;
-            searchInput.dispatchEvent(new Event('input'));
-        });
-        searchInput.addEventListener('input', () => {
-            searchClone.value = searchInput.value;
-        });
-    }
-    
-    // Add refresh button
-    const refreshBtn = document.getElementById('refresh-btn');
-    if (refreshBtn) {
-        const refreshClone = refreshBtn.cloneNode(true);
-        refreshClone.removeAttribute('id');
-        refreshClone.style.width = 'auto';
-        refreshClone.onclick = () => refreshContainers();
-        container.appendChild(refreshClone);
-    }
-    
-    // Add toggle view button
-    const toggleViewBtn = document.getElementById('toggle-view');
-    if (toggleViewBtn) {
-        const toggleClone = toggleViewBtn.cloneNode(true);
-        toggleClone.removeAttribute('id');
-        toggleClone.style.width = 'auto';
-        toggleClone.onclick = () => toggleView();
-        container.appendChild(toggleClone);
-    }
-    
-    td.appendChild(container);
-    return td;
-}
-
-function createNameColumnCell() {
-    const td = document.createElement('td');
-    const container = document.createElement('div');
-    container.style.display = 'flex';
-    container.style.gap = '0.5rem';
-    container.style.alignItems = 'center';
-    
-    // Add search input
-    const searchInput = document.getElementById('search-input');
-    if (searchInput) {
-        const searchClone = searchInput.cloneNode(true);
-        searchClone.removeAttribute('id');
-        searchClone.style.flex = '1';
-        container.appendChild(searchClone);
-        
-        // Sync values
-        searchClone.value = searchInput.value;
-        searchClone.addEventListener('input', () => {
-            searchInput.value = searchClone.value;
-            searchInput.dispatchEvent(new Event('input'));
-        });
-        searchInput.addEventListener('input', () => {
-            searchClone.value = searchInput.value;
-        });
-    }
-    
-    // Add refresh button
-    const refreshBtn = document.getElementById('refresh-btn');
-    if (refreshBtn) {
-        const refreshClone = refreshBtn.cloneNode(true);
-        refreshClone.removeAttribute('id');
-        refreshClone.style.width = 'auto';
-        refreshClone.onclick = () => refreshContainers();
-        container.appendChild(refreshClone);
-    }
-    
-    // Add toggle view button
-    const toggleViewBtn = document.getElementById('toggle-view');
-    if (toggleViewBtn) {
-        const toggleClone = toggleViewBtn.cloneNode(true);
-        toggleClone.removeAttribute('id');
-        toggleClone.style.width = 'auto';
-        toggleClone.onclick = () => toggleView();
-        container.appendChild(toggleClone);
-    }
-    
-    td.appendChild(container);
-    return td;
-}
-
-function restoreControlsFromTable() {
-    // Since we're cloning elements, we don't need to restore them
-    // The original controls are still in their place, just hidden
-}
 // Simplified sorting for table view
 function sortTable(key) {
     let direction = 'asc';
@@ -814,33 +402,193 @@ function sortTable(key) {
     // Call refreshContainers with sort parameters
     refreshContainers(key, direction);
 }
-// Save view preference
-function saveViewPreference(viewType) {
-    localStorage.setItem('preferredView', viewType);
+function ensureImagesTableStructure() {
+    const imagesTableView = document.getElementById('images-table-view');
+    if (!imagesTableView) {
+        console.error('Images table view container not found');
+        return;
+    }
+    
+    let imagesTable = document.getElementById('images-table');
+    
+    if (!imagesTable) {
+        console.log('Creating images table structure');
+        imagesTable = document.createElement('table');
+        imagesTable.id = 'images-table';
+        imagesTable.className = 'images-table';
+        
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        
+        // FIXED: Include Host header
+        headerRow.innerHTML = `
+            <th onclick="sortImages('name')">Name</th>
+            <th>Tags</th>
+            <th onclick="sortImages('size')">Size</th>
+            <th onclick="sortImages('created')">Created</th>
+            <th>Used By</th>
+            <th onclick="sortImages('host')">Host</th>
+            <th>Actions</th>
+        `;
+        
+        const tbody = document.createElement('tbody');
+        tbody.id = 'images-table-body';
+        
+        thead.appendChild(headerRow);
+        imagesTable.appendChild(thead);
+        imagesTable.appendChild(tbody);
+        imagesTableView.appendChild(imagesTable);
+        
+        console.log('Images table structure created with Host header');
+    }
+    
+    // Ensure table is properly styled and visible
+    imagesTable.style.width = '100%';
+    imagesTable.style.borderCollapse = 'collapse';
+    imagesTable.style.display = 'table';
+    
+    return imagesTable;
 }
 
-// Load view preference on startup
-function loadViewPreference() {
-    const savedView = localStorage.getItem('preferredView');
-    if (savedView === 'table') {
-        // Switch to table view
-        const gridView = document.getElementById('grid-view');
-        const tableView = document.getElementById('table-view');
-        if (gridView && tableView) {
-            gridView.classList.remove('active');
-            tableView.classList.add('active');
-            // Only move controls if we're in table view
-            if (tableView.classList.contains('active')) {
-                moveControlsToTable();
-            }
+// Add this new function to handle image sorting:
+function sortImages(sortBy) {
+    console.log(`Sorting images by: ${sortBy}`);
+    
+    // Get current images data
+    const tableBody = document.getElementById('images-table-body');
+    if (!tableBody) return;
+    
+    const rows = Array.from(tableBody.querySelectorAll('tr'));
+    
+    // Extract data from rows for sorting
+    const imageData = rows.map(row => {
+        const cells = row.querySelectorAll('td');
+        return {
+            element: row,
+            name: cells[0]?.textContent || '',
+            size: parseFloat(cells[2]?.textContent?.replace(' MB', '') || '0'),
+            created: cells[3]?.textContent || '',
+            host: cells[5]?.textContent?.trim() || 'local'
+        };
+    });
+    
+    // Sort the data
+    imageData.sort((a, b) => {
+        let valueA, valueB;
+        
+        switch(sortBy) {
+            case 'name':
+                valueA = a.name.toLowerCase();
+                valueB = b.name.toLowerCase();
+                return valueA.localeCompare(valueB);
+                
+            case 'size':
+                return b.size - a.size; // Descending for size
+                
+            case 'created':
+                valueA = a.created.toLowerCase();
+                valueB = b.created.toLowerCase();
+                return valueB.localeCompare(valueA); // Descending for created date
+                
+            case 'host':
+                valueA = a.host.toLowerCase();
+                valueB = b.host.toLowerCase();
+                // Sort by host first, then by name within each host
+                if (valueA !== valueB) {
+                    return valueA.localeCompare(valueB);
+                }
+                return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+                
+            default:
+                return 0;
         }
+    });
+    
+    // Clear table body and re-append sorted rows
+    tableBody.innerHTML = '';
+    imageData.forEach(item => {
+        tableBody.appendChild(item.element);
+    });
+    
+    // Update visual indicators
+    document.querySelectorAll('#images-table th[onclick]').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+    });
+    
+    const currentHeader = document.querySelector(`#images-table th[onclick="sortImages('${sortBy}')"]`);
+    if (currentHeader) {
+        // For size and created, show descending. For name and host, show ascending
+        const isDescending = sortBy === 'size' || sortBy === 'created';
+        currentHeader.classList.add(isDescending ? 'sorted-desc' : 'sorted-asc');
     }
 }
-// Batch mode: Select all
-document.getElementById('select-all').addEventListener('change', (e) => {
-    document.querySelectorAll('.batch-checkbox').forEach(checkbox => {
-        checkbox.checked = e.target.checked;
-        const row = checkbox.closest('tr');
-        row.classList.toggle('selected', e.target.checked);
-    });
+
+// Initialize table view event listeners when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    // Select all functionality
+    const selectAllCheckbox = document.getElementById('select-all');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', (e) => {
+            const checkboxes = document.querySelectorAll('.batch-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = e.target.checked;
+                const row = checkbox.closest('tr');
+                if (row) {
+                    row.classList.toggle('selected', e.target.checked);
+                }
+            });
+        });
+    }
+    
+    // Event listener for group filter changes to update table headers
+    const groupFilter = document.getElementById('group-filter');
+    const groupFilterMobile = document.getElementById('group-filter-mobile');
+    
+    if (groupFilter) {
+        groupFilter.addEventListener('change', () => {
+            setTimeout(updateTableHeaders, 100); // Small delay to ensure DOM updates
+        });
+    }
+    
+    if (groupFilterMobile) {
+        groupFilterMobile.addEventListener('change', () => {
+            setTimeout(updateTableHeaders, 100);
+        });
+    }
+    
+    // Also listen for view changes
+    const toggleViewBtn = document.getElementById('toggle-view');
+    if (toggleViewBtn) {
+        toggleViewBtn.addEventListener('click', () => {
+            setTimeout(updateTableHeaders, 200);
+        });
+    }
 });
+
+// Enhanced image table rendering for multi-host
+function renderImageTableRow(image, tableBody) {
+    const row = document.createElement('tr');
+    const isUsed = image.used_by && image.used_by.length > 0;
+    const hostDisplay = image.host_display || image.host || 'local';
+    
+    row.innerHTML = `
+        <td>${image.name}</td>
+        <td>${image.tags.join(', ')}</td>
+        <td>${image.size} MB</td>
+        <td>${image.created}</td>
+        <td>${isUsed ? image.used_by.join(', ') : 'None'}</td>
+        <td><span class="host-badge-small">${hostDisplay}</span></td>
+        <td>
+            <button onclick="removeImage('${image.id}', '${image.host}')" class="btn btn-error" ${isUsed ? 'disabled' : ''}>Remove</button>
+        </td>
+    `;
+    tableBody.appendChild(row);
+}
+
+// Export functions to window for global access
+window.ensureTableStructure = ensureTableStructure;
+window.updateTableHeaders = updateTableHeaders;
+window.renderContainersAsTable = renderContainersAsTable;
+window.renderImageTableRow = renderImageTableRow;
+window.renderContainersByTagAsTable = renderContainersByTagAsTable;
+window.sortTable = sortTable;

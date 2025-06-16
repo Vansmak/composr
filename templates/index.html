@@ -1,5 +1,244 @@
 <!DOCTYPE html>
 <html lang="en">
+<style>
+.multi-host-overview {
+    background: var(--bg-secondary);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.multi-host-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.multi-host-stat {
+    background: var(--bg-card);
+    padding: 0.75rem;
+    border-radius: 0.25rem;
+    border: 1px solid var(--border-color);
+    text-align: center;
+}
+
+.multi-host-stat .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent-primary);
+    display: block;
+}
+
+.multi-host-stat .stat-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.hosts-list {
+    margin-bottom: 2rem;
+}
+
+.host-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s ease;
+}
+
+.host-item:hover {
+    border-color: var(--accent-primary);
+    background: var(--bg-hover);
+}
+
+.host-item.connected {
+    border-left: 4px solid var(--accent-success);
+}
+
+.host-item.disconnected {
+    border-left: 4px solid var(--accent-error);
+    opacity: 0.7;
+}
+
+.host-item.current {
+    background: var(--bg-success-subtle);
+    border-color: var(--accent-success);
+}
+
+.host-info {
+    flex: 1;
+}
+
+.host-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.host-details {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.host-url {
+    font-family: monospace;
+    background: var(--bg-tertiary);
+    padding: 0.1rem 0.3rem;
+    border-radius: 0.2rem;
+}
+
+.host-type,
+.last-check {
+    background: var(--bg-tertiary);
+    padding: 0.1rem 0.3rem;
+    border-radius: 0.2rem;
+}
+
+.host-error {
+    color: var(--accent-error);
+    font-weight: 500;
+}
+
+.current-badge {
+    background: var(--accent-success);
+    color: white;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.2rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.host-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.add-host-form {
+    background: var(--bg-secondary);
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+    margin-bottom: 2rem;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.form-group input {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.form-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.connection-help {
+    background: var(--bg-card);
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.help-section h5 {
+    color: var(--accent-primary);
+    margin: 1rem 0 0.5rem 0;
+}
+
+.help-section h6 {
+    color: var(--text-primary);
+    margin: 0.75rem 0 0.25rem 0;
+    font-size: 0.9rem;
+}
+
+.code-block {
+    margin: 1rem 0;
+}
+
+.code-block pre {
+    background: var(--bg-tertiary);
+    padding: 1rem;
+    border-radius: 0.25rem;
+    border: 1px solid var(--border-color);
+    overflow-x: auto;
+    font-size: 0.85rem;
+}
+
+.code-block code {
+    color: var(--text-primary);
+    font-family: 'Courier New', monospace;
+}
+
+.security-warning {
+    background: var(--bg-warning-subtle);
+    border: 1px solid var(--accent-warning);
+    border-radius: 0.25rem;
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+.security-warning h6 {
+    color: var(--accent-warning);
+    margin-top: 0;
+}
+
+.security-warning p {
+    margin-bottom: 0;
+    color: var(--text-primary);
+}
+
+@media (max-width: 768px) {
+    .multi-host-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .host-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+    
+    .host-actions {
+        align-self: stretch;
+        justify-content: flex-end;
+    }
+    
+    .form-actions {
+        justify-content: stretch;
+    }
+    
+    .form-actions button {
+        flex: 1;
+    }
+}
+</style>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -37,19 +276,22 @@
             <div class="system-stats">
                 <div class="stats-compact">
                     <span>Containers: <span id="total-containers">--</span></span>
-                    <span>CPU: <span id="cpu-count">--</span></span>
-                    <span>Memory: <span id="memory-usage">--</span>/<span id="memory-total">--</span> MB</span>
+                    <span>Hosts: <span id="connected-hosts">--</span></span>
+                    <span>CPU: <span id="cpu-count">--</span> cores</span>
+                    <span>Memory: <span id="memory-usage">--</span>/<span id="memory-total">--</span> GB</span>
                 </div>
                 <div class="stats-grid">
                     <div class="stat-item">
                         <span>Containers: <span id="total-containers-grid">--</span> (<span id="running-containers">--</span> running)</span>
                     </div>
                     <div class="stat-item">
-                        <span>CPU: <span id="cpu-count-grid">--</span> cores</span>
+                        <span>Connected Hosts: <span id="connected-hosts-grid">--</span></span>
                     </div>
                     <div class="stat-item">
-                        <span>Memory: <span id="memory-usage-grid">--</span> MB / <span id="memory-total-grid">--</span> MB</span>
-                        <div class="progress-bar"><div class="progress-fill" id="memory-progress"></div></div>
+                        <span>Total CPU: <span id="cpu-count-grid">--</span> cores</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Total Memory: <span id="memory-total-grid">--</span> GB</span>
                     </div>
                 </div>
             </div>
@@ -144,7 +386,7 @@
                 <select id="group-filter" class="filter-select">
                     <option value="none">Group by</option>
                     <option value="stack">Compose</option>
-                    <option value="tag">Tag</option>
+                    <option value="host">Host</option>
                 </select>
                 
                 <select id="sort-filter" class="filter-select">
@@ -195,6 +437,8 @@
                             <th onclick="sortTable('status')">Status</th>
                             <th onclick="sortTable('uptime')">Uptime</th>
                             <th>Ports</th>
+                            <!-- Host column will be dynamically added/removed based on grouping -->
+                            <th onclick="sortTable('host')" id="host-column-header" style="display: none;">Host</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -205,43 +449,73 @@
         
         <div id="hosts-tab" class="tab-content">
             <div class="hosts-management">
-                <h3>Composr Instance Bookmarks</h3>
+                <h3>🖥️ Docker Host Management</h3>
                 
-                <!-- Current hosts list - leave structure, just update text -->
+                <!-- Multi-host system overview -->
+                <div class="multi-host-overview">
+                    <h4>System Overview</h4>
+                    <div id="multi-host-stats" class="multi-host-stats">
+                        <!-- Will be populated by JavaScript -->
+                    </div>
+                </div>
+                
+                <!-- Current hosts list -->
                 <div class="hosts-list">
-                    <h4>Saved Instances</h4>
+                    <h4>Connected Hosts</h4>
                     <div id="hosts-list-content">
                         <!-- Will be populated by JavaScript -->
                     </div>
                 </div>
                 
-                <!-- Add new host form - update text to reflect bookmarks -->
+                <!-- Add new host form -->
                 <div class="add-host-form">
-                    <h4>Add New Instance</h4>
+                    <h4>Add New Docker Host</h4>
                     <div class="form-group">
-                        <label>Name:</label>
-                        <input type="text" id="new-host-name" placeholder="e.g., Home Server">
+                        <label>Display Name:</label>
+                        <input type="text" id="new-host-name" placeholder="e.g., Production Server">
                     </div>
                     <div class="form-group">
-                        <label>URL:</label>
-                        <input type="text" id="new-host-url" placeholder="e.g., http://192.168.1.100:5003">
+                        <label>Docker URL:</label>
+                        <input type="text" id="new-host-url" placeholder="tcp://192.168.1.100:2375">
                     </div>
                     <div class="form-group">
-                        <label>Group (optional):</label>
-                        <input type="text" id="new-host-group" placeholder="e.g., production">
+                        <label>Description (optional):</label>
+                        <input type="text" id="new-host-description" placeholder="Production environment">
                     </div>
-                    <button class="btn btn-primary" onclick="addDockerHost()">Add Instance</button>
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" onclick="testHost('test', document.getElementById('new-host-url').value)">Test Connection</button>
+                        <button class="btn btn-primary" onclick="addDockerHost()">Add Host</button>
+                    </div>
                 </div>
                 
-                <!-- Update help content -->
+                <!-- Connection help -->
                 <div class="connection-help">
-                    <h4>Bookmark Information</h4>
-                    <p>Add bookmarks to quickly access other Composr instances on your network.</p>
-                    <ul>
-                        <li><strong>URL Format:</strong> http://hostname:5003 (Default Composr port)</li>
-                        <li><strong>Note:</strong> Make sure the other Composr instance is accessible from this device.</li>
-                        <li><strong>Tip:</strong> Use the name that helps you identify each instance (e.g., "Home Server", "Office", etc.)</li>
-                    </ul>
+                    <h4>🔗 Docker Host Setup</h4>
+                    <div class="help-section">
+                        <h5>Enable Docker Remote API:</h5>
+                        <div class="code-block">
+                            <h6>Method 1: Docker Daemon Configuration</h6>
+                            <pre><code># Edit /etc/docker/daemon.json
+        {
+        "hosts": ["unix:///var/run/docker.sock", "tcp://0.0.0.0:2375"]
+        }
+
+        # Restart Docker
+        sudo systemctl restart docker</code></pre>
+                        </div>
+                        <div class="code-block">
+                            <h6>Method 2: Docker Compose Override</h6>
+                            <pre><code># Add to docker-compose.yml
+        services:
+        composr:
+            environment:
+            - DOCKER_HOSTS=local=unix:///var/run/docker.sock,prod=tcp://192.168.1.100:2375</code></pre>
+                        </div>
+                        <div class="security-warning">
+                            <h6>⚠️ Security Warning</h6>
+                            <p>Only enable the Docker remote API on trusted networks. Consider using TLS certificates for production environments.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -267,10 +541,21 @@
 
                 <textarea id="compose-editor"></textarea>
                 <div class="editor-actions">
+                    <!-- Add host selection using existing form styles -->
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="compose-host-select">Deploy to:</label>
+                        <select id="compose-host-select" class="filter-select" style="max-width: 250px; margin-right: 0.5rem;">
+                            <option value="local">Local Docker</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="loadComposeHosts()" title="Refresh hosts">🔄</button>
+                    </div>
+                    
+                    <!-- Keep existing buttons exactly as they are -->
                     <button onclick="saveCompose()" class="btn btn-primary">Save</button>
-                    <button onclick="composeAction('restart')" class="btn btn-success">Restart</button>
-                    <button class="btn btn-secondary" onclick="extractEnvFromCompose()">Extract & Create .env</button>
-                    <p class="help-text">Extract environment variables and create a new .env file</p>
+                    <button onclick="composeAction('restart')" class="btn btn-success">🚀 Deploy</button>
+                    <!--<button class="btn btn-secondary" onclick="extractEnvFromCompose()">Extract & Create .env</button>
+                    
+                    <p class="help-text">Extract environment variables and create a new .env file</p>-->
                 </div>
             </div>
             
@@ -324,11 +609,12 @@
                             </div>
                             <div class="form-actions">
                                 <button class="btn btn-secondary" onclick="switchSubTab('compose')">Cancel</button>
-                                <button class="btn btn-primary" onclick="goToStep(2)">Next: Environment Variables</button>
+                                <!--<button class="btn btn-primary" onclick="goToStep(2)">Next: Environment Variables</button>-->
+                                <button class="btn btn-primary" onclick="goToStep(2)">Next: Review</button>
                             </div>
                         </div>
 
-                        <!-- Step 2: Environment variables -->
+                        <!-- Step 2: Environment variables 
                         <div class="form-step" id="step-env-vars">
                             <div class="step-title">
                                 <div class="step-number">2</div>
@@ -355,12 +641,12 @@
                                 <button class="btn btn-secondary" onclick="goToStep(1)">Back</button>
                                 <button class="btn btn-primary" onclick="goToStep(3)">Next: Review</button>
                             </div>
-                        </div>
+                        </div>-->
 
                         <!-- Step 3: Review and create -->
                         <div class="form-step" id="step-project-review">
                             <div class="step-title">
-                                <div class="step-number">3</div>
+                                <div class="step-number">2</div>
                                 <h4>Review & Create</h4>
                             </div>
                             <div class="project-preview">
@@ -371,15 +657,34 @@
                                     <div class="preview-content" id="preview-compose-content"></div>
                                 </div>
                                 
-                                <div class="preview-file" id="preview-env-file">
+                                <!--<div class="preview-file" id="preview-env-file">
                                     <h4><span class="preview-file-icon">📄</span> .env</h4>
                                     <div class="preview-content" id="preview-env-content"></div>
+                                </div>-->
+                            </div>
+                            <div class="form-group" style="margin: 1rem 0; padding: 1rem; background: var(--bg-secondary); border-radius: 0.5rem;">
+                                <h4>🚀 Deployment Options</h4>
+                                
+                                <div class="form-group">
+                                    <label for="create-deploy-host">Deploy to Host:</label>
+                                    <select id="create-deploy-host" class="filter-select" style="max-width: 250px; margin-right: 0.5rem;">
+                                        <option value="">Don't deploy (just create files)</option>
+                                        <option value="local">Local Docker</option>
+                                        <!-- Will be populated by loadCreateHosts() -->
+                                    </select>
+                                    <button class="btn btn-secondary" onclick="loadCreateHosts()" title="Refresh hosts">🔄</button>
+                                </div>
+                                
+                                
+                                
+                                <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem;">
+                                    <strong>Note:</strong> If deploying to a remote host, ensure any volume paths exist on that host.
                                 </div>
                             </div>
+
                             <div class="form-actions">
                                 <button class="btn btn-secondary" onclick="switchSubTab('compose')">Cancel</button>
-                                <button class="btn btn-secondary" onclick="goToStep(2)">Back</button>
-                                <button class="btn btn-success" onclick="createProject()">Create Project</button>
+                                <button class="btn btn-secondary" onclick="goToStep(1)">Back</button>
                                 <button class="btn btn-primary" onclick="createAndDeployProject()">Create & Deploy</button>
                             </div>
                         </div>
@@ -510,5 +815,6 @@
     <script src="/static/js/table-view.js"></script>
     <script src="/static/js/remote.js"></script>
     <script src="/static/js/backup.js"></script>
+    
 </body>
 </html>

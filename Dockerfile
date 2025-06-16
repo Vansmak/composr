@@ -11,9 +11,9 @@ RUN apk add --no-cache \
 # Set working directory
 WORKDIR /app
 
-# Copy and install Python dependencies
+# Copy and install Python dependencies GLOBALLY (not --user)
 COPY requirements.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Production stage
 FROM python:3.9-alpine
@@ -49,8 +49,9 @@ RUN DOCKER_COMPOSE_VERSION=v2.23.1 \
     && curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}" -o /usr/local/bin/docker-compose \
     && chmod +x /usr/local/bin/docker-compose
 
-# Copy Python packages from builder stage  
-COPY --from=builder /root/.local /root/.local
+# Copy Python packages from builder stage (now installed globally)
+COPY --from=builder /usr/local/lib/python3.9/site-packages /usr/local/lib/python3.9/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Set working directory
 WORKDIR /app
@@ -58,11 +59,14 @@ WORKDIR /app
 # Copy application files
 COPY . .
 
-# Make sure the local bin is in PATH
-ENV PATH=/root/.local/bin:$PATH
+# Create a non-root user (optional, but good practice)
+RUN adduser -D -u 1000 composr
+
+# Make sure composr user can access the app directory
+RUN chown -R composr:composr /app
 
 # Expose port
 EXPOSE 5003
 
-# Command to run the application
+# Command to run the application (can now run as any user)
 CMD ["gunicorn", "--bind", "0.0.0.0:5003", "--workers", "4", "--threads", "2", "--timeout", "120", "app:app"]

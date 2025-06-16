@@ -375,22 +375,24 @@ function goToStep(step) {
     
     if (step === 1) {
         nextStepEl = document.getElementById('step-project-info');
+    /*
     } else if (step === 2) {
-    nextStepEl = document.getElementById('step-env-vars');
-    
-    // Validate project name before proceeding
-    const projectName = document.getElementById('project-name').value;
-    if (!projectName) {
-        showMessage('error', 'Please enter a project name');
-        return;
-    }
-    
-    // IMPORTANT: Get the current content from the CodeMirror editor
-    if (codeMirrorEditors['compose-content']) {
-        const currentComposeContent = codeMirrorEditors['compose-content'].getValue();
-        document.getElementById('compose-content').value = currentComposeContent;
-    }
-    } else if (step === 3) {
+        nextStepEl = document.getElementById('step-env-vars');
+        
+        // Validate project name before proceeding
+        const projectName = document.getElementById('project-name').value;
+        if (!projectName) {
+            showMessage('error', 'Please enter a project name');
+            return;
+        }
+        
+        // IMPORTANT: Get the current content from the CodeMirror editor
+        if (codeMirrorEditors['compose-content']) {
+            const currentComposeContent = codeMirrorEditors['compose-content'].getValue();
+            document.getElementById('compose-content').value = currentComposeContent;
+        }
+    */
+    } else if (step === 2) {
         nextStepEl = document.getElementById('step-project-review');
         
         // Capture current editor content before proceeding
@@ -408,8 +410,8 @@ function goToStep(step) {
         const projectLocation = document.getElementById('project-location').value;
         const customPath = document.getElementById('custom-path').value;
         const composeContent = document.getElementById('compose-content').value; // Now has the updated content
-        const createEnvFile = document.getElementById('create-env-file').checked;
-        const envContent = createEnvFile ? document.getElementById('env-content').value : '';
+        //const createEnvFile = document.getElementById('create-env-file').checked;
+        //const envContent = createEnvFile ? document.getElementById('env-content').value : '';
         
         // ... rest of the function
         // Update preview
@@ -419,13 +421,13 @@ function goToStep(step) {
         document.getElementById('preview-compose-content').textContent = composeContent;
         
         // Show/hide env preview
-        const envPreview = document.getElementById('preview-env-file');
+        /*const envPreview = document.getElementById('preview-env-file');
         if (envPreview) {
             envPreview.style.display = createEnvFile ? 'block' : 'none';
             if (createEnvFile) {
                 document.getElementById('preview-env-content').textContent = envContent;
             }
-        }
+        }*/
     }
     
     // Hide all steps

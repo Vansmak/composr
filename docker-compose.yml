@@ -3,7 +3,8 @@ version: '3'
 services:
   composr:
     build: .
-    container_name: composr-local
+    user: "1000:1000"
+    
     ports:
       - "5003:5003"
     volumes:
@@ -11,6 +12,7 @@ services:
       - ./:/app  # Mount code for development
       - /home/joe/docker:/home/joe/docker  # Your home directory with all compose files
       - /home/joe/projects:/home/joe/projects
+      - /home/joe/config/caddy:/home/joe/config/caddy  # Caddy config directory
       - ./metadata:/app/metadata  # Store metadata persistently
     environment:
       - COMPOSE_DIR=/home/joe/docker  # Look for compose files here

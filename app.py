@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request, send_file  # Add send_file here
+from flask import Flask, render_template, jsonify, request, send_file
 import json
 import logging
 import os
@@ -13,21 +13,20 @@ import zipfile
 import tempfile
 import shutil
 import yaml
+import docker  # Make sure this is imported
+
 # Import helper functions
 from functions import (
     initialize_docker_client, load_container_metadata, save_container_metadata, 
     get_compose_files, scan_all_compose_files, resolve_compose_file_path,
     extract_env_from_compose, calculate_uptime, find_caddy_container, get_compose_files_cached
 )
+
+# Import your existing host manager
 from remote_hosts import host_manager
 
-# Wait for local client to be ready
-start_time = time.time()
-while host_manager.get_client('local') is None and time.time() - start_time < 5:
-    time.sleep(0.1)
-
 # Add after imports
-__version__ = "1.6.1"
+__version__ = "1.7.0"
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -39,29 +38,6 @@ METADATA_DIR = os.environ.get('METADATA_DIR', '/app')
 CONTAINER_METADATA_FILE = os.path.join(METADATA_DIR, 'container_metadata.json')
 CADDY_CONFIG_DIR = os.getenv('CADDY_CONFIG_DIR', '')
 CADDY_CONFIG_FILE = os.getenv('CADDY_CONFIG_FILE', 'Caddyfile')
-
-# Add hosts file path AFTER METADATA_DIR is defined
-HOSTS_FILE = os.path.join(METADATA_DIR, 'host_bookmarks.json')
-
-# Simple functions to load/save hosts
-def load_hosts():
-    try:
-        if os.path.exists(HOSTS_FILE):
-            with open(HOSTS_FILE, 'r') as f:
-                return json.load(f)
-        return {"local": {"url": "", "connected": True}}
-    except Exception as e:
-        logger.error(f"Failed to load hosts: {e}")
-        return {"local": {"url": "", "connected": True}}
-
-def save_hosts(hosts):
-    try:
-        with open(HOSTS_FILE, 'w') as f:
-            json.dump(hosts, f)
-        return True
-    except Exception as e:
-        logger.error(f"Failed to save hosts: {e}")
-        return False
 
 # Ensure metadata directory exists
 os.makedirs(os.path.dirname(CONTAINER_METADATA_FILE), exist_ok=True)
@@ -80,6 +56,11 @@ logger.setLevel(log_level)
 # Log the startup
 logger.info(f"Composr starting up - Log file: {log_file}, Debug mode: {log_level == logging.DEBUG}")
 
+# Your host_manager is already initialized in remote_hosts.py, just wait for it to be ready
+start_time = time.time()
+while host_manager.get_client('local') is None and time.time() - start_time < 5:
+    time.sleep(0.1)
+
 # Caching variables
 _system_stats_cache = {}
 _system_stats_timestamp = 0
@@ -88,8 +69,11 @@ _cache_timestamp = 0
 _cache_lock = threading.Lock()
 CACHE_TTL = 10  # seconds
 
-# Initialize Docker client
+# Initialize Docker client (this gets the current/local client)
 client = host_manager.get_client()
+
+logger.info(f"Composr initialized with client: {'available' if client else 'unavailable'}")
+logger.info(f"Connected hosts: {list(host_manager.get_connected_hosts())}")
 
 # Main route
 @app.route('/')
@@ -707,66 +691,136 @@ def preview_backup():
     except Exception as e:
         logger.error(f"Failed to preview backup: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
+##new
+@app.route('/api/hosts')
+def get_hosts():
+    """Get all configured hosts with their status"""
+    try:
+        hosts_status = host_manager.get_hosts_status()
+        current_host = host_manager.current_host
+        
+        return jsonify({
+            'status': 'success',
+            'hosts': hosts_status,
+            'current_host': current_host
+        })
+    except Exception as e:
+        logger.error(f"Failed to get hosts: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
 
-# Basic API endpoints for host bookmarks
-@app.route('/api/docker/hosts')
-def get_docker_hosts():
-    hosts = load_hosts()
-    return jsonify({'hosts': hosts, 'current': 'local'})
-
-@app.route('/api/docker/hosts/add', methods=['POST'])
+@app.route('/api/hosts/add', methods=['POST'])
 def add_docker_host():
+    """Add a new Docker host"""
     try:
         data = request.json
         name = data.get('name')
         url = data.get('url')
+        description = data.get('description', '')
         
         if not name or not url:
             return jsonify({'status': 'error', 'message': 'Name and URL are required'})
         
-        hosts = load_hosts()
-        hosts[name] = {'url': url, 'connected': False}
-        save_hosts(hosts)
+        # Validate URL format for Docker
+        if not url.startswith('tcp://'):
+            return jsonify({'status': 'error', 'message': 'URL must start with tcp:// (e.g., tcp://192.168.1.100:2375)'})
         
-        return jsonify({'status': 'success', 'message': f'Added host {name}'})
+        # Add host using your HostManager
+        success, message = host_manager.add_host(name, url, description)
+        
+        if success:
+            return jsonify({
+                'status': 'success', 
+                'message': message
+            })
+        else:
+            return jsonify({
+                'status': 'error', 
+                'message': message
+            })
+            
     except Exception as e:
+        logger.error(f"Failed to add Docker host: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
-@app.route('/api/docker/hosts/remove', methods=['POST'])
+@app.route('/api/hosts/remove', methods=['POST'])
 def remove_docker_host():
+    """Remove a Docker host"""
     try:
         data = request.json
         name = data.get('name')
         
-        if name == 'local':
-            return jsonify({'status': 'error', 'message': 'Cannot remove local host'})
+        if not name:
+            return jsonify({'status': 'error', 'message': 'Host name is required'})
         
-        hosts = load_hosts()
-        if name in hosts:
-            del hosts[name]
-            save_hosts(hosts)
+        # Remove host using your HostManager
+        success, message = host_manager.remove_host(name)
         
-        return jsonify({'status': 'success', 'message': f'Removed host {name}'})
+        if success:
+            return jsonify({
+                'status': 'success', 
+                'message': message
+            })
+        else:
+            return jsonify({
+                'status': 'error', 
+                'message': message
+            })
+            
     except Exception as e:
+        logger.error(f"Failed to remove Docker host: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
-@app.route('/api/docker/switch-host', methods=['POST'])
-def switch_docker_host():
-    data = request.json
-    new_host = data.get('host')
-    
+@app.route('/api/hosts/test', methods=['POST'])
+def test_docker_host():
+    """Test connection to a Docker host"""
     try:
+        data = request.json
+        url = data.get('url')
+        
+        if not url:
+            return jsonify({'status': 'error', 'message': 'URL is required'})
+        
+        # Test connection using your HostManager
+        success = host_manager.test_host_connection(url)
+        
+        if success:
+            return jsonify({
+                'status': 'success',
+                'message': 'Connection successful'
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Connection failed'
+            })
+            
+    except Exception as e:
+        logger.error(f"Failed to test Docker host: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/hosts/switch', methods=['POST'])
+def switch_docker_host():
+    """Switch to a different Docker host"""
+    try:
+        data = request.json
+        host = data.get('host')
+        
+        if not host:
+            return jsonify({'status': 'error', 'message': 'Host name is required'})
+        
+        # Switch to the specified host using your HostManager
         global client
-        client = host_manager.switch_host(new_host)
+        client = host_manager.switch_host(host)
+        
         return jsonify({
             'status': 'success',
-            'message': f'Switched to {new_host}'
+            'message': f'Successfully switched to {host}'
         })
+            
     except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        })
+        logger.error(f"Failed to switch Docker host: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+##end new
 
 
 # ADD THIS ENTIRE NEW ENDPOINT
@@ -821,104 +875,84 @@ def get_all_containers():
         return jsonify({'error': str(e)}), 500
     
 # Container routes
+# 1. Update the main containers endpoint to always show all hosts
 @app.route('/api/containers')
 def get_containers():
-    """Get containers with host information"""
-    # ADD THIS: Check for specific host parameter
-    host_param = request.args.get('host')
-    
-    # MODIFY: Get client for specified host or current host
-    if host_param:
-        client = host_manager.get_client(host_param)
-        current_host = host_param
-    else:
-        client = host_manager.get_client()
-        current_host = host_manager.current_host
-    global _container_cache, _cache_timestamp
-    if client is None:
-        logger.error("Docker client not initialized")
-        return jsonify([])
-
+    """Get containers from all connected hosts - unified view"""
     try:
         search = request.args.get('search', '').lower()
         status = request.args.get('status', '')
         sort_by = request.args.get('sort', 'name')
         tag_filter = request.args.get('tag', '')
+        stack_filter = request.args.get('stack', '')
+        host_filter = request.args.get('host', '')  # Add host filter
 
-        metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
-        current_time = time.time()
+        all_containers = []
+        hosts_status = host_manager.get_hosts_status()
+        container_metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
 
-        if current_time - _cache_timestamp < CACHE_TTL and _container_cache:
-            logger.debug("Using cached container data")
-            containers = _container_cache.copy()
-        else:
-            containers = []
-            for container in client.containers.list(all=True):
-                labels = container.labels
-                compose_project = labels.get('com.docker.compose.project', None)
-                compose_file = None
-                config_files = labels.get('com.docker.compose.project.config_files', None)
-                if config_files:
-                    file_path = config_files.split(',')[0]
-                    if os.path.exists(file_path):
-                        compose_file = os.path.relpath(file_path, COMPOSE_DIR)
-                    else:
-                        compose_file = os.path.basename(file_path)
+        # Iterate through ALL connected hosts
+        for host_name, status_info in hosts_status.items():
+            if status_info['connected']:
+                client = host_manager.get_client(host_name)
+                if client:
+                    try:
+                        host_containers = client.containers.list(all=True)
+                        logger.debug(f"Processing {len(host_containers)} containers from host {host_name}")
+                        
+                        for container in host_containers:
+                            labels = container.labels or {}
+                            compose_project = labels.get('com.docker.compose.project', None)
+                            compose_file = None
+                            config_files = labels.get('com.docker.compose.project.config_files', None)
+                            
+                            if config_files:
+                                file_path = config_files.split(',')[0]
+                                compose_file = os.path.basename(file_path)
+                            
+                            container_name = container.name
+                            # Use host-prefixed key for metadata lookup
+                            metadata_key = f"{host_name}:{container_name}" if host_name != 'local' else container_name
+                            container_meta = container_metadata.get(metadata_key, {})
+                            
+                            # Extract ports properly
+                            ports = {}
+                            try:
+                                port_bindings = container.attrs.get('HostConfig', {}).get('PortBindings')
+                                if port_bindings:
+                                    for container_port, host_config in port_bindings.items():
+                                        if host_config and len(host_config) > 0:
+                                            host_port = host_config[0].get('HostPort')
+                                            if host_port:
+                                                ports[host_port] = container_port
+                            except Exception as e:
+                                logger.warning(f"Failed to extract ports for {host_name}:{container_name}: {e}")
+                            
+                            container_data = {
+                                'id': container.short_id,
+                                'name': container_name,
+                                'status': container.status,
+                                'image': container.image.tags[0] if container.image.tags else 'unknown',
+                                'compose_project': compose_project,
+                                'compose_file': compose_file,
+                                'uptime': calculate_uptime(container.attrs['State'].get('StartedAt', ''), logger),
+                                'cpu_percent': 0,
+                                'memory_usage': 0,
+                                'tags': container_meta.get('tags', []),
+                                'custom_url': container_meta.get('custom_url', ''),
+                                'host': host_name,
+                                'host_display': status_info.get('name', host_name),
+                                'ports': ports
+                            }
+                            all_containers.append(container_data)
+                            
+                    except Exception as e:
+                        logger.error(f"Failed to get containers from host {host_name}: {e}")
 
-                container_name = container.name
-                container_metadata = metadata.get(container_name, {})
-                container_tags = container_metadata.get('tags', [])
-
-                container_data = {
-                    'id': container.short_id,
-                    'name': container_name,
-                    'status': container.status,
-                    'image': container.image.tags[0] if container.image.tags else 'unknown',
-                    'compose_project': compose_project,
-                    'compose_file': compose_file,
-                    'uptime': calculate_uptime(container.attrs['State']['StartedAt'], logger),
-                    'cpu_percent': 0,
-                    'memory_usage': 0,
-                    'tags': container_tags,
-                    'host': current_host  # Add host information
-                }
-                containers.append(container_data)
-
-            # Save containers immediately without stats
-            _container_cache = containers.copy()
-            _cache_timestamp = current_time
-
-            # Start background thread to update stats
-            def update_stats():
-                logger.debug("Updating container stats in background...")
-                updated = []
-                for container in containers:
-                    if container['status'] == 'running':
-                        try:
-                            c = client.containers.get(container['id'])
-                            stats = c.stats(stream=False)
-                            if 'cpu_stats' in stats and 'precpu_stats' in stats:
-                                cpu_delta = stats['cpu_stats']['cpu_usage']['total_usage'] - stats['precpu_stats']['cpu_usage']['total_usage']
-                                system_delta = stats['cpu_stats']['system_cpu_usage'] - stats['precpu_stats']['system_cpu_usage']
-                                if system_delta > 0:
-                                    cpu_percent = (cpu_delta / system_delta) * stats['cpu_stats']['online_cpus'] * 100
-                                    container['cpu_percent'] = round(cpu_percent, 2)
-                            if 'memory_stats' in stats and 'usage' in stats['memory_stats']:
-                                memory_usage = stats['memory_stats']['usage'] / (1024 * 1024)
-                                container['memory_usage'] = round(memory_usage, 2)
-                        except Exception as e:
-                            logger.warning(f"Failed to get stats for container {container['id']}: {e}")
-                    updated.append(container)
-
-                global _container_cache
-                _container_cache = updated
-                logger.debug("Container stats updated!")
-
-            threading.Thread(target=update_stats).start()
-
-        # Apply filtering/sorting
+        # Apply filters
         filtered_containers = []
-        for container in containers:
+        for container in all_containers:
+            # Search filter
             if search and not (
                 search in container['name'].lower() or
                 search in (container['image'] or '').lower() or
@@ -926,12 +960,28 @@ def get_containers():
                 any(search in tag.lower() for tag in container.get('tags', []))
             ):
                 continue
+            
+            # Status filter
             if status and container['status'] != status:
                 continue
+            
+            # Tag filter
             if tag_filter and tag_filter not in container.get('tags', []):
                 continue
+                
+            # Stack filter
+            if stack_filter:
+                stack_name = extract_stack_name(container)
+                if stack_name != stack_filter:
+                    continue
+            
+            # Host filter
+            if host_filter and container['host'] != host_filter:
+                continue
+                
             filtered_containers.append(container)
 
+        # Sort containers
         if sort_by == 'name':
             filtered_containers.sort(key=lambda x: x['name'].lower())
         elif sort_by == 'status':
@@ -942,28 +992,60 @@ def get_containers():
             filtered_containers.sort(key=lambda x: x['memory_usage'], reverse=True)
         elif sort_by == 'uptime':
             filtered_containers.sort(key=lambda x: x['uptime']['minutes'], reverse=True)
-        elif sort_by == 'tag':
-            filtered_containers.sort(key=lambda x: (x.get('tags', [''])[0] if x.get('tags') else '', x['name'].lower()))
+        elif sort_by == 'host':
+            filtered_containers.sort(key=lambda x: (x.get('host', 'local'), x['name'].lower()))
 
         return jsonify(filtered_containers)
 
     except Exception as e:
-        logger.error(f"Failed to list containers: {e}")
+        logger.error(f"Failed to list containers from all hosts: {e}")
         return jsonify([])
-    
+
+# Helper function to extract stack name (add to your functions.py)
+def extract_stack_name(container):
+    """Extract stack name from container metadata"""
+    try:
+        # Use compose_project if available
+        if container.get('compose_project') and container['compose_project'].strip():
+            return container['compose_project']
+
+        # Use compose_file directory as the stack name
+        if container.get('compose_file'):
+            path_parts = container['compose_file'].split('/').filter(lambda p: len(p) > 0)
+            system_dirs = ['home', 'var', 'opt', 'usr', 'etc', 'mnt', 'srv', 'data', 'app', 'docker']
+            
+            for part in path_parts:
+                if part.lower() not in system_dirs:
+                    return part
+            
+            if path_parts:
+                return path_parts[-2] if len(path_parts) > 1 else path_parts[0]
+
+        # Fallback to container name
+        return container.get('name', 'Unknown')
+    except Exception:
+        return 'Unknown'
+
+# Fix the container exec endpoint
 @app.route('/api/container/<id>/exec', methods=['POST'])
 def exec_in_container(id):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
     try:
         data = request.json
         if not data or 'command' not in data:
             return jsonify({'status': 'error', 'message': 'No command provided'})
         
+        # Get host from request data
+        host = data.get('host', 'local')
+        
+        # Get the appropriate client for this host
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         command = data['command']
         container = client.containers.get(id)
         
-        logger.info(f"Executing command in container {id}: {command}")
+        logger.info(f"Executing command in container {id} on host {host}: {command}")
         
         # Execute the command
         exec_result = container.exec_run(
@@ -991,14 +1073,29 @@ def exec_in_container(id):
     except Exception as e:
         logger.error(f"Failed to execute command in container {id}: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)})
+
+
+# Fix the container settings endpoints
 @app.route('/api/container/<id>/get_tags')
 def get_container_tags(id):
     """Get tags for a specific container"""
     try:
+        # Get host from query parameter
+        host = request.args.get('host', 'local')
+        
+        # Get the appropriate client for this host
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         container = client.containers.get(id)
         container_name = container.name
+        
+        # Use host-prefixed key for metadata lookup
+        metadata_key = f"{host}:{container_name}" if host != 'local' else container_name
         metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
-        container_data = metadata.get(container_name, {})
+        container_data = metadata.get(metadata_key, {})
+        
         return jsonify({
             'status': 'success',
             'tags': container_data.get('tags', [])
@@ -1007,14 +1104,27 @@ def get_container_tags(id):
         logger.error(f"Failed to get tags for container {id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
+
 @app.route('/api/container/<id>/custom_url')
 def get_container_custom_url(id):
     """Get custom URL for a specific container"""
     try:
+        # Get host from query parameter
+        host = request.args.get('host', 'local')
+        
+        # Get the appropriate client for this host
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         container = client.containers.get(id)
         container_name = container.name
+        
+        # Use host-prefixed key for metadata lookup
+        metadata_key = f"{host}:{container_name}" if host != 'local' else container_name
         metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
-        container_data = metadata.get(container_name, {})
+        container_data = metadata.get(metadata_key, {})
+        
         return jsonify({
             'status': 'success',
             'url': container_data.get('custom_url', '')
@@ -1022,6 +1132,7 @@ def get_container_custom_url(id):
     except Exception as e:
         logger.error(f"Failed to get custom URL for container {id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
+
 
 @app.route('/api/container/<id>/settings', methods=['POST'])
 def save_container_settings(id):
@@ -1031,21 +1142,32 @@ def save_container_settings(id):
         if not data:
             return jsonify({'status': 'error', 'message': 'No data provided'})
         
+        # Get host from request data
+        host = data.get('host', 'local')
+        
+        # Get the appropriate client for this host
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         container = client.containers.get(id)
         container_name = container.name
+        
+        # Use host-prefixed key for metadata storage
+        metadata_key = f"{host}:{container_name}" if host != 'local' else container_name
         metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
         
         # Initialize container metadata if not exists
-        if container_name not in metadata:
-            metadata[container_name] = {}
+        if metadata_key not in metadata:
+            metadata[metadata_key] = {}
         
         # Update tags
         if 'tags' in data:
-            metadata[container_name]['tags'] = data['tags']
+            metadata[metadata_key]['tags'] = data['tags']
         
         # Update custom URL
         if 'custom_url' in data:
-            metadata[container_name]['custom_url'] = data['custom_url']
+            metadata[metadata_key]['custom_url'] = data['custom_url']
         
         # Save metadata
         if save_container_metadata(metadata, CONTAINER_METADATA_FILE, logger):
@@ -1056,11 +1178,18 @@ def save_container_settings(id):
         logger.error(f"Failed to save container settings: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
+# Fix the container logs endpoint
 @app.route('/api/container/<id>/logs')
 def get_container_logs(id):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
     try:
+        # Get host from query parameter
+        host = request.args.get('host', 'local')
+        
+        # Get the appropriate client for this host
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         container = client.containers.get(id)
         logs = container.logs(tail=100).decode('utf-8')
         return jsonify({'status': 'success', 'logs': logs})
@@ -1068,11 +1197,19 @@ def get_container_logs(id):
         logger.error(f"Failed to get logs for container {id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
+
+# Fix the container inspect endpoint
 @app.route('/api/container/<id>/inspect')
 def inspect_container(id):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
     try:
+        # Get host from query parameter
+        host = request.args.get('host', 'local')
+        
+        # Get the appropriate client for this host
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         container = client.containers.get(id)
         inspect_data = container.attrs
         return jsonify({'status': 'success', 'data': inspect_data})
@@ -1080,12 +1217,21 @@ def inspect_container(id):
         logger.error(f"Failed to inspect container {id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
+
+# Fix the container action endpoint in app.py
 @app.route('/api/container/<id>/<action>', methods=['POST'])
-def container_action(id, action):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
+def container_action_multihost(id, action):
+    """Container actions with automatic host detection"""
     try:
-        container = client.containers.get(id)
+        data = request.json or {}
+        host = data.get('host', 'local')
+        
+        # Get the appropriate client for this host - USE DIFFERENT VARIABLE NAME
+        host_client = host_manager.get_client(host)
+        if not host_client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
+        container = host_client.containers.get(id) 
         
         # Check if this is a Docker Compose container
         project_labels = {k: v for k, v in container.labels.items() if k.startswith('com.docker.compose')}
@@ -1104,12 +1250,20 @@ def container_action(id, action):
                 env = os.environ.copy()
                 env["COMPOSE_PROJECT_NAME"] = project
                 
+                # CRITICAL FIX: Set DOCKER_HOST for the subprocess
+                if host != 'local':
+                    host_config = host_manager.get_hosts_status().get(host, {})
+                    docker_url = host_config.get('url', '')
+                    if docker_url:
+                        env['DOCKER_HOST'] = docker_url
+                        logger.info(f"Setting DOCKER_HOST={docker_url} for compose action on {host}")
+                
                 valid_actions = {'start': 'start', 'stop': 'stop', 'restart': 'restart'}
                 if action not in valid_actions:
                     return jsonify({'status': 'error', 'message': 'Invalid action'})
                 
                 try:
-                    logger.info(f"Using docker-compose to {action} container {container.name} (service: {service})")
+                    logger.info(f"Using docker-compose to {action} container {container.name} on host {host}")
                     result = subprocess.run(
                         ["docker-compose", "-f", compose_file, valid_actions[action], service],
                         check=True,
@@ -1118,16 +1272,12 @@ def container_action(id, action):
                         text=True,
                         capture_output=True
                     )
-                    logger.info(f"Docker Compose {action} completed: {result.stdout}")
-                    return jsonify({'status': 'success', 'message': f'Container {action}ed via docker-compose'})
+                    return jsonify({'status': 'success', 'message': f'Container {action}ed via docker-compose on {host}'})
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"Docker Compose {action} failed: {e.stderr}")
                     return jsonify({'status': 'error', 'message': f'Failed to {action} container: {e.stderr}'})
         
-        # Fall back to direct Docker API for non-compose containers
-        logger.info(f"Using Docker API to {action} container {container.name}")
         if action == 'start':
-            container.start()
+            container.start()  # This works because container came from host_client
         elif action == 'stop':
             container.stop()
         elif action == 'restart':
@@ -1135,17 +1285,26 @@ def container_action(id, action):
         else:
             return jsonify({'status': 'error', 'message': 'Invalid action'})
         
-        return jsonify({'status': 'success', 'message': f'Container {action}ed'})
+        return jsonify({'status': 'success', 'message': f'Container {action}ed on {host}'})
+        
     except Exception as e:
         logger.error(f"Failed to perform action {action} on container {id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
+
+
 @app.route('/api/container/<id>/remove', methods=['POST'])
 def remove_container(id):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
     try:
-        container = client.containers.get(id)
+        data = request.json or {}
+        host = data.get('host', 'local')
+        
+        # Get the appropriate client for this host
+        host_client = host_manager.get_client(host)
+        if not host_client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
+        container = host_client.containers.get(id)
         
         # Check if this is a Docker Compose container
         project_labels = {k: v for k, v in container.labels.items() if k.startswith('com.docker.compose')}
@@ -1164,8 +1323,16 @@ def remove_container(id):
                 env = os.environ.copy()
                 env["COMPOSE_PROJECT_NAME"] = project
                 
+                # CRITICAL: Set DOCKER_HOST for the subprocess
+                if host != 'local':
+                    host_config = host_manager.get_hosts_status().get(host, {})
+                    docker_url = host_config.get('url', '')
+                    if docker_url:
+                        env['DOCKER_HOST'] = docker_url
+                        logger.info(f"Setting DOCKER_HOST={docker_url} for compose remove on {host}")
+                
                 try:
-                    logger.info(f"Using docker-compose to remove container {container.name} (service: {service})")
+                    logger.info(f"Using docker-compose to remove container {container.name} (service: {service}) on {host}")
                     result = subprocess.run(
                         ["docker-compose", "-f", compose_file, "rm", "-sf", service],
                         check=True,
@@ -1175,27 +1342,34 @@ def remove_container(id):
                         capture_output=True
                     )
                     logger.info(f"Docker Compose remove completed: {result.stdout}")
-                    return jsonify({'status': 'success', 'message': 'Container removed via docker-compose'})
+                    return jsonify({'status': 'success', 'message': f'Container removed via docker-compose on {host}'})
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Docker Compose remove failed: {e.stderr}")
                     return jsonify({'status': 'error', 'message': f'Failed to remove container: {e.stderr}'})
         
         # Fall back to direct Docker API for non-compose containers
-        logger.info(f"Using Docker API to remove container {container.name}")
+        logger.info(f"Using Docker API to remove container {container.name} on {host}")
         if container.status == 'running':
             container.stop()
         container.remove()
-        return jsonify({'status': 'success', 'message': 'Container removed successfully'})
+        return jsonify({'status': 'success', 'message': f'Container removed successfully on {host}'})
     except Exception as e:
-        logger.error(f"Failed to remove container {id}: {e}")
+        logger.error(f"Failed to remove container {id} on {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
+
 
 @app.route('/api/container/<id>/repull', methods=['POST'])
 def repull_container(id):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
     try:
-        container = client.containers.get(id)
+        data = request.json or {}
+        host = data.get('host', 'local')
+        
+        # Get the appropriate client for this host
+        host_client = host_manager.get_client(host)
+        if not host_client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
+        container = host_client.containers.get(id)
         
         # Check if this is a Docker Compose container
         project_labels = {k: v for k, v in container.labels.items() if k.startswith('com.docker.compose')}
@@ -1214,9 +1388,17 @@ def repull_container(id):
                 env = os.environ.copy()
                 env["COMPOSE_PROJECT_NAME"] = project
                 
+                # CRITICAL: Set DOCKER_HOST for the subprocess
+                if host != 'local':
+                    host_config = host_manager.get_hosts_status().get(host, {})
+                    docker_url = host_config.get('url', '')
+                    if docker_url:
+                        env['DOCKER_HOST'] = docker_url
+                        logger.info(f"Setting DOCKER_HOST={docker_url} for compose repull on {host}")
+                
                 try:
                     # Pull the latest image
-                    logger.info(f"Using docker-compose to pull image for {container.name} (service: {service})")
+                    logger.info(f"Using docker-compose to pull image for {container.name} (service: {service}) on {host}")
                     pull_result = subprocess.run(
                         ["docker-compose", "-f", compose_file, "pull", service],
                         check=True,
@@ -1228,7 +1410,7 @@ def repull_container(id):
                     logger.info(f"Docker Compose pull completed: {pull_result.stdout}")
                     
                     # Down and up this service
-                    logger.info(f"Using docker-compose to recreate {container.name} (service: {service})")
+                    logger.info(f"Using docker-compose to recreate {container.name} (service: {service}) on {host}")
                     up_result = subprocess.run(
                         ["docker-compose", "-f", compose_file, "up", "-d", "--force-recreate", service],
                         check=True,
@@ -1241,14 +1423,14 @@ def repull_container(id):
                     
                     return jsonify({
                         'status': 'success',
-                        'message': f'Container {container.name} repulled and restarted via docker-compose'
+                        'message': f'Container {container.name} repulled and restarted via docker-compose on {host}'
                     })
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Docker Compose repull failed: {e.stderr}")
                     return jsonify({'status': 'error', 'message': f'Failed to repull container: {e.stderr}'})
         
         # Fall back to direct Docker API for non-compose containers
-        logger.info(f"Using Docker API to repull container {container.name}")
+        logger.info(f"Using Docker API to repull container {container.name} on {host}")
         image_tag = None
         if container.image.tags:
             image_tag = container.image.tags[0]
@@ -1256,7 +1438,7 @@ def repull_container(id):
             return jsonify({'status': 'error', 'message': 'Container has no image tag'})
         
         try:
-            client.images.pull(image_tag)
+            host_client.images.pull(image_tag)
         except Exception as e:
             return jsonify({'status': 'error', 'message': f'Failed to pull image: {str(e)}'})
         
@@ -1265,7 +1447,7 @@ def repull_container(id):
             container.stop()
         container.remove()
         
-        new_container = client.containers.run(
+        new_container = host_client.containers.run(
             image=image_tag,
             name=container.name,
             detach=True,
@@ -1278,10 +1460,10 @@ def repull_container(id):
         
         return jsonify({
             'status': 'success',
-            'message': f'Container {container.name} repulled and restarted'
+            'message': f'Container {container.name} repulled and restarted on {host}'
         })
     except Exception as e:
-        logger.error(f"Failed to repull container {id}: {e}")
+        logger.error(f"Failed to repull container {id} on {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
 @app.route('/api/container/<id>/compose')
@@ -1428,44 +1610,714 @@ def get_compose_files_endpoint():
         logger.error(f"Failed to get compose files: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': f'Failed to get compose files: {str(e)}', 'files': []})
 
-# In app.py, update the scan_compose_files_endpoint
 @app.route('/api/compose/scan')
-def scan_compose_files_endpoint():
+def scan_compose_files_multihost():
+    """Enhanced compose file scanning with host context awareness"""
     try:
-        # Original code for scanning
+        # Get standard local files
         files = scan_all_compose_files(COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
         
-        # Add this new section to also scan for relative paths with ../
-        # This will find compose files in sibling directories of your COMPOSE_DIR
-        parent_dir = os.path.dirname(COMPOSE_DIR)
-        if os.path.exists(parent_dir):
-            logger.info(f"Scanning parent directory: {parent_dir}")
-            for item in os.listdir(parent_dir):
-                item_path = os.path.join(parent_dir, item)
-                if os.path.isdir(item_path) and item_path != COMPOSE_DIR:  # Skip the compose dir itself
-                    # This is a sibling directory to compose_dir (like immich, media-server, etc.)
-                    sibling_dir = item
-                    sibling_path = os.path.join(parent_dir, sibling_dir)
-                    logger.debug(f"Checking sibling directory: {sibling_dir}")
-                    
-                    # Look for compose files in this sibling directory
-                    for root, dirs, file_list in os.walk(sibling_path):
-                        for file in file_list:
-                            if file.lower() in ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']:
-                                # Create a relative path with ../
-                                rel_from_root = os.path.relpath(os.path.join(root, file), parent_dir)
-                                rel_path = f"../{rel_from_root}"
-                                if rel_path not in files:
-                                    files.append(rel_path)
-                                    logger.info(f"Found relative compose file: {rel_path}")
+        # Add metadata about which hosts can use each file
+        enhanced_files = []
+        hosts_status = host_manager.get_hosts_status()
         
-        # Return the files as before
-        logger.debug(f"Returning scanned compose files: {files}")
-        return jsonify({'status': 'success', 'files': files})
+        for file_path in files:
+            full_path = resolve_compose_file_path(file_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+            if full_path and os.path.exists(full_path):
+                
+                # Try to determine which hosts this compose file targets
+                target_hosts = analyze_compose_file_hosts(full_path)
+                
+                enhanced_files.append({
+                    'path': file_path,
+                    'target_hosts': target_hosts,
+                    'available_on': 'local',  # Files are always read from local
+                    'can_deploy_to': [h for h in hosts_status.keys() if hosts_status[h].get('connected', False)]
+                })
+        
+        return jsonify({
+            'status': 'success', 
+            'files': [f['path'] for f in enhanced_files],  # Keep compatible with existing frontend
+            'file_info': enhanced_files  # Additional metadata for future use
+        })
+        
     except Exception as e:
-        logger.error(f"Failed to scan compose files: {e}", exc_info=True)
-        return jsonify({'status': 'error', 'message': f'Failed to scan compose files: {str(e)}', 'files': []})
+        logger.error(f"Failed to scan compose files: {e}")
+        return jsonify({'status': 'error', 'message': str(e), 'files': []})
 
+def analyze_compose_file_hosts(compose_file_path):
+    """Analyze a compose file to guess which hosts it might target"""
+    try:
+        with open(compose_file_path, 'r') as f:
+            content = f.read()
+        
+        # Look for clues in the compose file
+        target_hosts = ['local']  # Default to local
+        
+        # Check for environment variables that might indicate remote hosts
+        if 'DOCKER_HOST=' in content:
+            target_hosts.append('remote')
+        
+        # Check for host-specific volume paths
+        if '/mnt/' in content or '/media/' in content:
+            # Might be targeting a specific host with mounted storage
+            pass
+        
+        # Could add more sophisticated analysis here
+        return target_hosts
+        
+    except Exception as e:
+        logger.debug(f"Could not analyze compose file {compose_file_path}: {e}")
+        return ['local']
+
+@app.route('/api/compose/deploy', methods=['POST'])
+def deploy_compose_to_host():
+    """Deploy a compose file to a specific host with enhanced error handling"""
+    try:
+        data = request.json
+        compose_file = data.get('file')
+        target_host = data.get('host', 'local')
+        action = data.get('action', 'up')  # up, down, restart
+        pull_images = data.get('pull', False)
+        
+        if not compose_file:
+            return jsonify({'status': 'error', 'message': 'No compose file specified'})
+        
+        logger.info(f"Deploying {compose_file} to host {target_host} with action {action}")
+        
+        # Get the compose file content (always from local filesystem)
+        full_path = resolve_compose_file_path(compose_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if not full_path or not os.path.exists(full_path):
+            return jsonify({'status': 'error', 'message': f'Compose file {compose_file} not found'})
+        
+        # Validate the compose file
+        validation_result = validate_compose_file(full_path)
+        if not validation_result['valid']:
+            return jsonify({
+                'status': 'error', 
+                'message': f'Invalid compose file: {validation_result["error"]}'
+            })
+        
+        # Analyze the compose file for potential issues
+        analysis = analyze_compose_for_deployment(full_path, target_host)
+        if analysis['warnings']:
+            logger.warning(f"Deployment warnings for {compose_file}: {analysis['warnings']}")
+        
+        # Execute compose command targeting specific host
+        result = execute_compose_on_host_enhanced(full_path, target_host, action, pull_images)
+        
+        if result['success']:
+            return jsonify({
+                'status': 'success',
+                'message': f'Successfully {action}ed compose on {target_host}',
+                'output': result.get('output', ''),
+                'warnings': analysis.get('warnings', []),
+                'deployment_info': {
+                    'host': target_host,
+                    'action': action,
+                    'file': compose_file,
+                    'timestamp': datetime.now().isoformat()
+                }
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': result['message'],
+                'output': result.get('output', ''),
+                'error_details': result.get('error_details', {})
+            })
+            
+    except Exception as e:
+        logger.error(f"Failed to deploy compose: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/compose/validate', methods=['POST'])
+def validate_compose_content():
+    """Validate compose file content without saving"""
+    try:
+        data = request.json
+        content = data.get('content', '')
+        
+        if not content.strip():
+            return jsonify({'status': 'error', 'message': 'Empty compose content'})
+        
+        # Write to temporary file for validation
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as tmp:
+            tmp.write(content)
+            temp_file = tmp.name
+        
+        try:
+            validation_result = validate_compose_file(temp_file)
+            
+            if validation_result['valid']:
+                # Also analyze for deployment warnings
+                analysis = analyze_compose_content_for_issues(content)
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Valid compose file',
+                    'services_count': validation_result.get('services_count', 0),
+                    'analysis': analysis
+                })
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'message': validation_result['error']
+                })
+                
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(temp_file)
+            except:
+                pass
+                
+    except Exception as e:
+        logger.error(f"Failed to validate compose content: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/compose/analyze', methods=['POST'])
+def analyze_compose_file_endpoint():
+    """Analyze compose file for deployment warnings and requirements"""
+    try:
+        data = request.json
+        compose_file = data.get('file')
+        content = data.get('content')
+        target_host = data.get('host', 'local')
+        
+        if compose_file:
+            # Analyze existing file
+            full_path = resolve_compose_file_path(compose_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+            if not full_path or not os.path.exists(full_path):
+                return jsonify({'status': 'error', 'message': 'Compose file not found'})
+            
+            analysis = analyze_compose_for_deployment(full_path, target_host)
+            
+        elif content:
+            # Analyze provided content
+            analysis = analyze_compose_content_for_issues(content)
+            
+        else:
+            return jsonify({'status': 'error', 'message': 'No compose file or content provided'})
+        
+        return jsonify({
+            'status': 'success',
+            'analysis': analysis
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to analyze compose file: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/deployment/status/<deployment_id>')
+def get_deployment_status(deployment_id):
+    """Get status of a deployment operation"""
+    try:
+        # In a real implementation, you'd track deployment status
+        # For now, return a simple status
+        return jsonify({
+            'status': 'success',
+            'deployment_status': 'completed',
+            'message': 'Deployment completed successfully'
+        })
+    except Exception as e:
+        logger.error(f"Failed to get deployment status: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# Enhanced helper functions
+
+def validate_compose_file(file_path):
+    """Validate a docker-compose file"""
+    try:
+        import yaml
+        
+        with open(file_path, 'r') as f:
+            compose_data = yaml.safe_load(f)
+        
+        if not compose_data:
+            return {'valid': False, 'error': 'Empty YAML document'}
+        
+        if not isinstance(compose_data, dict):
+            return {'valid': False, 'error': 'Compose file must be a YAML object'}
+        
+        if 'services' not in compose_data:
+            return {'valid': False, 'error': 'No services defined in compose file'}
+        
+        if not compose_data['services']:
+            return {'valid': False, 'error': 'Services section is empty'}
+        
+        services_count = len(compose_data['services'])
+        
+        # Validate each service has required fields
+        for service_name, service_config in compose_data['services'].items():
+            if not isinstance(service_config, dict):
+                return {'valid': False, 'error': f'Service {service_name} must be an object'}
+            
+            # Check for image or build
+            if 'image' not in service_config and 'build' not in service_config:
+                return {'valid': False, 'error': f'Service {service_name} must have either image or build specified'}
+        
+        return {
+            'valid': True,
+            'services_count': services_count,
+            'services': list(compose_data['services'].keys())
+        }
+        
+    except yaml.YAMLError as e:
+        return {'valid': False, 'error': f'Invalid YAML: {str(e)}'}
+    except Exception as e:
+        return {'valid': False, 'error': f'Validation error: {str(e)}'}
+
+def analyze_compose_for_deployment(file_path, target_host):
+    """Analyze compose file for deployment warnings and requirements"""
+    try:
+        import yaml
+        
+        with open(file_path, 'r') as f:
+            compose_data = yaml.safe_load(f)
+        
+        return analyze_compose_data(compose_data, target_host)
+        
+    except Exception as e:
+        logger.error(f"Error analyzing compose file: {e}")
+        return {
+            'warnings': [f'Could not analyze compose file: {str(e)}'],
+            'volume_paths': [],
+            'external_networks': [],
+            'port_conflicts': [],
+            'resource_requirements': {}
+        }
+
+def analyze_compose_content_for_issues(content):
+    """Analyze compose content string for issues"""
+    try:
+        import yaml
+        
+        compose_data = yaml.safe_load(content)
+        return analyze_compose_data(compose_data, 'unknown')
+        
+    except yaml.YAMLError as e:
+        return {
+            'warnings': [f'Invalid YAML syntax: {str(e)}'],
+            'volume_paths': [],
+            'external_networks': [],
+            'port_conflicts': [],
+            'resource_requirements': {}
+        }
+    except Exception as e:
+        return {
+            'warnings': [f'Analysis error: {str(e)}'],
+            'volume_paths': [],
+            'external_networks': [],
+            'port_conflicts': [],
+            'resource_requirements': {}
+        }
+
+def analyze_compose_data(compose_data, target_host):
+    """Analyze parsed compose data for deployment issues"""
+    warnings = []
+    volume_paths = []
+    external_networks = []
+    port_conflicts = []
+    resource_requirements = {}
+    
+    if not compose_data or 'services' not in compose_data:
+        return {
+            'warnings': ['No services found in compose file'],
+            'volume_paths': [],
+            'external_networks': [],
+            'port_conflicts': [],
+            'resource_requirements': {}
+        }
+    
+    # Analyze services
+    for service_name, service_config in compose_data['services'].items():
+        if not isinstance(service_config, dict):
+            continue
+        
+        # Check volume mappings
+        if 'volumes' in service_config and isinstance(service_config['volumes'], list):
+            for volume in service_config['volumes']:
+                if isinstance(volume, str) and ':' in volume:
+                    host_path = volume.split(':')[0]
+                    
+                    # Check for absolute host paths
+                    if host_path.startswith('/') or (len(host_path) > 1 and host_path[1] == ':'):
+                        volume_paths.append({
+                            'service': service_name,
+                            'path': host_path,
+                            'mapping': volume
+                        })
+                        
+                        if target_host != 'local':
+                            warnings.append(f'Service {service_name}: Volume path {host_path} must exist on target host {target_host}')
+        
+        # Check port mappings for conflicts
+        if 'ports' in service_config and isinstance(service_config['ports'], list):
+            for port in service_config['ports']:
+                if isinstance(port, str) and ':' in port:
+                    host_port = port.split(':')[0]
+                    try:
+                        port_num = int(host_port)
+                        if port_num < 1024 and target_host != 'local':
+                            warnings.append(f'Service {service_name}: Port {port_num} requires root privileges on target host')
+                        
+                        # Check for common port conflicts
+                        common_ports = {22: 'SSH', 80: 'HTTP', 443: 'HTTPS', 3306: 'MySQL', 5432: 'PostgreSQL'}
+                        if port_num in common_ports:
+                            warnings.append(f'Service {service_name}: Port {port_num} ({common_ports[port_num]}) may conflict with system services')
+                            
+                    except ValueError:
+                        pass
+        
+        # Check resource requirements
+        if 'deploy' in service_config and 'resources' in service_config['deploy']:
+            resources = service_config['deploy']['resources']
+            if 'limits' in resources:
+                resource_requirements[service_name] = resources['limits']
+        
+        # Check for environment file dependencies
+        if 'env_file' in service_config:
+            env_files = service_config['env_file']
+            if isinstance(env_files, str):
+                env_files = [env_files]
+            elif isinstance(env_files, list):
+                for env_file in env_files:
+                    if target_host != 'local':
+                        warnings.append(f'Service {service_name}: Environment file {env_file} must exist on target host')
+    
+    # Check external networks
+    if 'networks' in compose_data and isinstance(compose_data['networks'], dict):
+        for network_name, network_config in compose_data['networks'].items():
+            if isinstance(network_config, dict) and network_config.get('external'):
+                external_networks.append(network_name)
+                if target_host != 'local':
+                    warnings.append(f'External network {network_name} must exist on target host {target_host}')
+    
+    # Check for secrets and configs
+    if 'secrets' in compose_data and target_host != 'local':
+        warnings.append('Compose file uses secrets - ensure they are available on target host')
+    
+    if 'configs' in compose_data and target_host != 'local':
+        warnings.append('Compose file uses configs - ensure they are available on target host')
+    
+    return {
+        'warnings': warnings,
+        'volume_paths': volume_paths,
+        'external_networks': external_networks,
+        'port_conflicts': port_conflicts,
+        'resource_requirements': resource_requirements
+    }
+
+def execute_compose_on_host_enhanced(compose_file_path, target_host, action, pull_images=False):
+    """Enhanced version of execute_compose_on_host with better error handling"""
+    try:
+        import subprocess
+        
+        compose_dir = os.path.dirname(compose_file_path)
+        compose_filename = os.path.basename(compose_file_path)
+        
+        # Setup environment
+        env = os.environ.copy()
+        
+        # Set DOCKER_HOST for remote execution
+        if target_host != 'local':
+            host_config = host_manager.get_hosts_status().get(target_host, {})
+            docker_url = host_config.get('url', '')
+            if docker_url:
+                env['DOCKER_HOST'] = docker_url
+                logger.info(f"Setting DOCKER_HOST={docker_url} for {target_host}")
+            else:
+                return {'success': False, 'message': f'No URL configured for host {target_host}'}
+        
+        # Determine project name
+        project_name = os.path.basename(compose_dir)
+        env['COMPOSE_PROJECT_NAME'] = project_name
+        
+        # Execute deployment steps
+        steps_output = []
+        
+        try:
+            # Step 1: Pull images if requested
+            if pull_images and action in ['up', 'restart']:
+                logger.info(f"Pulling images for {project_name} on {target_host}")
+                pull_cmd = ['docker-compose', '-f', compose_filename, 'pull']
+                
+                pull_result = subprocess.run(
+                    pull_cmd,
+                    cwd=compose_dir,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                
+                steps_output.append(f"PULL OUTPUT:\n{pull_result.stdout}")
+                if pull_result.stderr:
+                    steps_output.append(f"PULL WARNINGS:\n{pull_result.stderr}")
+                
+                if pull_result.returncode != 0:
+                    logger.warning(f"Pull command had issues but continuing: {pull_result.stderr}")
+            
+            # Step 2: Execute main action
+            if action == 'up':
+                cmd = ['docker-compose', '-f', compose_filename, 'up', '-d']
+            elif action == 'down':
+                cmd = ['docker-compose', '-f', compose_filename, 'down']
+            elif action == 'restart':
+                # First down, then up
+                down_cmd = ['docker-compose', '-f', compose_filename, 'down']
+                down_result = subprocess.run(
+                    down_cmd,
+                    cwd=compose_dir,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                
+                steps_output.append(f"DOWN OUTPUT:\n{down_result.stdout}")
+                if down_result.stderr:
+                    steps_output.append(f"DOWN WARNINGS:\n{down_result.stderr}")
+                
+                cmd = ['docker-compose', '-f', compose_filename, 'up', '-d']
+            else:
+                return {'success': False, 'message': f'Unknown action: {action}'}
+            
+            logger.info(f"Executing: {' '.join(cmd)} in {compose_dir} for host {target_host}")
+            
+            # Execute main command
+            result = subprocess.run(
+                cmd,
+                cwd=compose_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            
+            steps_output.append(f"{action.upper()} OUTPUT:\n{result.stdout}")
+            if result.stderr:
+                steps_output.append(f"{action.upper()} WARNINGS:\n{result.stderr}")
+            
+            if result.returncode == 0:
+                return {
+                    'success': True,
+                    'output': '\n\n'.join(steps_output),
+                    'message': f'Command completed successfully on {target_host}'
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': f'Command failed with exit code {result.returncode}',
+                    'output': '\n\n'.join(steps_output),
+                    'error_details': {
+                        'exit_code': result.returncode,
+                        'stderr': result.stderr
+                    }
+                }
+                
+        except subprocess.TimeoutExpired:
+            return {
+                'success': False, 
+                'message': 'Command timed out after 5 minutes',
+                'output': '\n\n'.join(steps_output)
+            }
+            
+    except Exception as e:
+        logger.error(f"Error executing compose command: {e}")
+        return {'success': False, 'message': str(e)}
+
+# Additional utility function for project creation with deployment
+@app.route('/api/project/create-and-deploy', methods=['POST'])
+def create_project_and_deploy():
+    """Create a new project and optionally deploy it to a host"""
+    try:
+        data = request.json
+        
+        # First create the project using existing logic
+        create_result = create_project_locally(data)
+        
+        if not create_result['success']:
+            return jsonify(create_result)
+        
+        # If deployment is requested
+        deploy_host = data.get('deploy_host')
+        auto_start = data.get('auto_start', True)
+        
+        if deploy_host and deploy_host != '':
+            project_name = data['project_name']
+            location_type = data.get('location_type', 'default')
+            
+            # Construct compose file path
+            if location_type == 'default':
+                compose_path = f"{project_name}/docker-compose.yml"
+            else:
+                compose_path = f"{project_name}/docker-compose.yml"
+            
+            # Deploy the project
+            deploy_action = 'up' if auto_start else 'down'
+            deploy_result = execute_compose_on_host_enhanced(
+                os.path.join(COMPOSE_DIR, compose_path), 
+                deploy_host, 
+                deploy_action
+            )
+            
+            if deploy_result['success']:
+                create_result['message'] += f' and deployed to {deploy_host}'
+                create_result['deployment'] = {
+                    'host': deploy_host,
+                    'action': deploy_action,
+                    'output': deploy_result.get('output', '')
+                }
+            else:
+                create_result['message'] += f' but deployment to {deploy_host} failed'
+                create_result['deployment_error'] = deploy_result['message']
+                # Don't fail the entire operation if deployment fails
+        
+        return jsonify(create_result)
+        
+    except Exception as e:
+        logger.error(f"Failed to create and deploy project: {e}")
+        return jsonify({'status': 'error', 'success': False, 'message': str(e)})
+
+# Function to check host connectivity before deployment
+@app.route('/api/hosts/check-deployment-ready/<host_name>')
+def check_host_deployment_ready(host_name):
+    """Check if a host is ready for deployment"""
+    try:
+        if host_name == 'local':
+            return jsonify({
+                'status': 'success',
+                'ready': True,
+                'message': 'Local host is always ready'
+            })
+        
+        # Check host connectivity
+        hosts_status = host_manager.get_hosts_status()
+        host_info = hosts_status.get(host_name)
+        
+        if not host_info:
+            return jsonify({
+                'status': 'error',
+                'ready': False,
+                'message': f'Host {host_name} not found'
+            })
+        
+        if not host_info.get('connected'):
+            return jsonify({
+                'status': 'error',
+                'ready': False,
+                'message': f'Host {host_name} is not connected'
+            })
+        
+        # Additional checks could go here
+        # - Disk space
+        # - Docker version compatibility
+        # - Network connectivity
+        
+        return jsonify({
+            'status': 'success',
+            'ready': True,
+            'message': f'Host {host_name} is ready for deployment',
+            'host_info': {
+                'name': host_info.get('name', host_name),
+                'url': host_info.get('url', ''),
+                'last_check': host_info.get('last_check', 0)
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to check host deployment readiness: {e}")
+        return jsonify({
+            'status': 'error',
+            'ready': False,
+            'message': f'Error checking host: {str(e)}'
+        })
+
+
+def execute_compose_on_host(compose_file_path, target_host, action):
+    """Execute docker-compose command on a specific host"""
+    try:
+        import subprocess
+        
+        compose_dir = os.path.dirname(compose_file_path)
+        compose_filename = os.path.basename(compose_file_path)
+        
+        # Setup environment
+        env = os.environ.copy()
+        
+        # Set DOCKER_HOST for remote execution
+        if target_host != 'local':
+            host_config = host_manager.get_hosts_status().get(target_host, {})
+            docker_url = host_config.get('url', '')
+            if docker_url:
+                env['DOCKER_HOST'] = docker_url
+                logger.info(f"Setting DOCKER_HOST={docker_url} for {target_host}")
+        
+        # Determine project name
+        project_name = os.path.basename(compose_dir)
+        env['COMPOSE_PROJECT_NAME'] = project_name
+        
+        # Build command
+        cmd = ['docker-compose', '-f', compose_filename]
+        
+        if action == 'up':
+            cmd.extend(['up', '-d'])
+        elif action == 'down':
+            cmd.append('down')
+        elif action == 'restart':
+            cmd.extend(['down'])  # First down
+        else:
+            return {'success': False, 'message': f'Unknown action: {action}'}
+        
+        logger.info(f"Executing: {' '.join(cmd)} in {compose_dir} for host {target_host}")
+        
+        # Execute command
+        result = subprocess.run(
+            cmd,
+            cwd=compose_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+        
+        if result.returncode == 0:
+            # If restart, now do the up
+            if action == 'restart':
+                up_cmd = ['docker-compose', '-f', compose_filename, 'up', '-d']
+                up_result = subprocess.run(
+                    up_cmd,
+                    cwd=compose_dir,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                if up_result.returncode != 0:
+                    return {
+                        'success': False,
+                        'message': f'Restart failed on up phase: {up_result.stderr}'
+                    }
+            
+            return {
+                'success': True,
+                'output': result.stdout,
+                'message': f'Command completed successfully on {target_host}'
+            }
+        else:
+            return {
+                'success': False,
+                'message': f'Command failed: {result.stderr}'
+            }
+            
+    except subprocess.TimeoutExpired:
+        return {'success': False, 'message': 'Command timed out after 5 minutes'}
+    except Exception as e:
+        return {'success': False, 'message': str(e)}
+    
 @app.route('/api/compose', methods=['GET'])
 def get_compose():
     try:
@@ -1706,75 +2558,227 @@ def save_env_file():
         return jsonify({'status': 'error', 'message': str(e)})
 
 # Image management routes
+# 3. Update images endpoint for multi-host
 @app.route('/api/images')
-def get_images():
-    if client is None:
-        logger.error("Docker client not initialized")
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable. Check Docker socket configuration.'})
+def get_images_multihost():
+    """Get images from all connected hosts"""
     try:
-        images = []
-        for image in client.images.list():
-            tags = image.tags
-            name = tags[0] if tags else '<none>:<none>'
-            size_mb = round(image.attrs['Size'] / (1024 * 1024), 2)
-            # Handle both integer and string timestamps
-            created_val = image.attrs['Created']
-            if isinstance(created_val, (int, float)):
-                created = datetime.fromtimestamp(created_val).strftime('%Y-%m-%d %H:%M:%S')
-            else:
-                # Assume string is ISO 8601 or similar
-                try:
-                    created_dt = datetime.strptime(created_val.split('.')[0], '%Y-%m-%dT%H:%M:%S')
-                    created = created_dt.strftime('%Y-%m-%d %H:%M:%S')
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Invalid created timestamp for image {name}: {created_val}")
-                    created = 'Unknown'
-            used_by = []
-            for container in client.containers.list(all=True):
-                if container.image.id == image.id:
-                    used_by.append(container.name)
-            images.append({
-                'id': image.short_id,
-                'name': name,
-                'tags': tags,
-                'size': size_mb,
-                'created': created,
-                'used_by': used_by
-            })
-        logger.debug(f"Returning {len(images)} images")
-        return jsonify(images)
+        all_images = []
+        hosts_status = host_manager.get_hosts_status()
+        
+        for host_name, status_info in hosts_status.items():
+            if status_info['connected']:
+                client = host_manager.get_client(host_name)
+                if client:
+                    try:
+                        host_images = client.images.list()
+                        
+                        for image in host_images:
+                            tags = image.tags
+                            name = tags[0] if tags else '<none>:<none>'
+                            size_mb = round(image.attrs['Size'] / (1024 * 1024), 2)
+                            
+                            # Handle timestamps
+                            created_val = image.attrs['Created']
+                            if isinstance(created_val, (int, float)):
+                                created = datetime.fromtimestamp(created_val).strftime('%Y-%m-%d %H:%M:%S')
+                            else:
+                                try:
+                                    created_dt = datetime.strptime(created_val.split('.')[0], '%Y-%m-%dT%H:%M:%S')
+                                    created = created_dt.strftime('%Y-%m-%d %H:%M:%S')
+                                except (ValueError, TypeError):
+                                    created = 'Unknown'
+                            
+                            # Find containers using this image on this host
+                            used_by = []
+                            try:
+                                for container in client.containers.list(all=True):
+                                    if container.image.id == image.id:
+                                        used_by.append(f"{container.name} ({host_name})")
+                            except Exception as e:
+                                logger.warning(f"Failed to get container usage for image on {host_name}: {e}")
+                            
+                            all_images.append({
+                                'id': image.short_id,
+                                'name': name,
+                                'tags': tags,
+                                'size': size_mb,
+                                'created': created,
+                                'used_by': used_by,
+                                'host': host_name,
+                                'host_display': status_info.get('name', host_name)
+                            })
+                            
+                    except Exception as e:
+                        logger.error(f"Failed to get images from host {host_name}: {e}")
+        
+        return jsonify(all_images)
+        
     except Exception as e:
-        logger.error(f"Failed to list images: {e}", exc_info=True)
-        return jsonify({'status': 'error', 'message': f'Failed to list images: {str(e)}'})
+        logger.error(f"Failed to get images from all hosts: {e}")
+        return jsonify([])
+@app.route('/api/system/<host>')
+def get_host_system_info(host):
+    """Get system information for a specific host"""
+    try:
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
+        info = client.info()
+        containers = client.containers.list(all=True)
+        
+        return jsonify({
+            'status': 'success',
+            'total_containers': len(containers),
+            'running_containers': len([c for c in containers if c.status == 'running']),
+            'cpu_count': info.get('NCPU', 0),
+            'memory_total': round(info.get('MemTotal', 0) / (1024 * 1024), 2),
+            'docker_version': info.get('ServerVersion', 'unknown')
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to get system info for host {host}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# Update your existing multi-host system overview to work with your HostManager
+@app.route('/api/system/overview')
+def get_multihost_system_overview():
+    """Get system overview for all connected hosts"""
+    try:
+        overview = {}
+        totals = {
+            'total_containers': 0,
+            'total_running': 0,
+            'total_images': 0,
+            'connected_hosts': 0,
+            'total_cpu_cores': 0,
+            'total_memory_gb': 0
+        }
+        
+        hosts_status = host_manager.get_hosts_status()
+        
+        for host_name, status in hosts_status.items():
+            if status['connected']:
+                client = host_manager.get_client(host_name)
+                if client:
+                    try:
+                        info = client.info()
+                        containers = len(client.containers.list(all=True))
+                        running = len(client.containers.list())
+                        images = len(client.images.list())
+                        
+                        host_stats = {
+                            'name': status.get('name', host_name),
+                            'connected': True,
+                            'containers': containers,
+                            'running': running,
+                            'images': images,
+                            'cpu_count': info.get('NCPU', 0),
+                            'memory_total': round(info.get('MemTotal', 0) / (1024 * 1024 * 1024), 2),
+                            'docker_version': info.get('ServerVersion', 'unknown')
+                        }
+                        
+                        # Add to totals
+                        totals['total_containers'] += containers
+                        totals['total_running'] += running
+                        totals['total_images'] += images
+                        totals['total_cpu_cores'] += host_stats['cpu_count']
+                        totals['total_memory_gb'] += host_stats['memory_total']
+                        totals['connected_hosts'] += 1
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to get stats for host {host_name}: {e}")
+                        host_stats = {
+                            'name': status.get('name', host_name),
+                            'connected': False,
+                            'error': str(e)
+                        }
+                else:
+                    host_stats = {
+                        'name': status.get('name', host_name),
+                        'connected': False,
+                        'error': 'Client not available'
+                    }
+            else:
+                host_stats = {
+                    'name': status.get('name', host_name),
+                    'connected': False,
+                    'error': 'Not connected'
+                }
+            
+            overview[host_name] = host_stats
+        
+        return jsonify({
+            'status': 'success',
+            'hosts': overview,
+            'totals': totals
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to get multi-host overview: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/images/<id>/remove', methods=['POST'])
+def remove_image(id):
+    try:
+        data = request.json or {}
+        host = data.get('host', 'local')
+        force = request.args.get('force', 'false').lower() == 'true'
+        
+        # Get the appropriate client for this host
+        host_client = host_manager.get_client(host)
+        if not host_client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
+        host_client.images.remove(id, force=force)
+        return jsonify({'status': 'success', 'message': f'Image removed successfully from {host}'})
+    except Exception as e:
+        logger.error(f"Failed to remove image {id} from {host}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
 
 @app.route('/api/images/prune', methods=['POST'])
 def prune_images():
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
     try:
-        result = client.images.prune()
+        data = request.json or {}
+        host = data.get('host', 'local')
+        
+        # Get the appropriate client for this host
+        host_client = host_manager.get_client(host)
+        if not host_client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
+        result = host_client.images.prune()
         space_reclaimed = round(result['SpaceReclaimed'] / (1024 * 1024), 2)
         return jsonify({
             'status': 'success',
-            'message': f'Pruned {len(result["ImagesDeleted"] or [])} images, reclaimed {space_reclaimed} MB'
+            'message': f'Pruned {len(result["ImagesDeleted"] or [])} images on {host}, reclaimed {space_reclaimed} MB'
         })
     except Exception as e:
-        logger.error(f"Failed to prune images: {e}")
+        logger.error(f"Failed to prune images on {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
+
 
 @app.route('/api/images/remove_unused', methods=['POST'])
 def remove_unused_images():
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
     try:
+        data = request.json or {}
+        host = data.get('host', 'local')
         force = request.args.get('force', 'false').lower() == 'true'
-        logger.info(f"Removing unused images with force={force}")
+        
+        # Get the appropriate client for this host
+        host_client = host_manager.get_client(host)
+        if not host_client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
+        logger.info(f"Removing unused images on {host} with force={force}")
         
         # Get all images
-        images = client.images.list()
+        images = host_client.images.list()
         
         # Get all running containers
-        containers = client.containers.list(all=True)
+        containers = host_client.containers.list(all=True)
         used_image_ids = set()
         
         # Collect image IDs used by containers
@@ -1794,15 +2798,15 @@ def remove_unused_images():
         
         for image in unused_images:
             try:
-                logger.info(f"Attempting to remove image {image.id} with force={force}")
-                client.images.remove(image.id, force=force)
+                logger.info(f"Attempting to remove image {image.id} on {host} with force={force}")
+                host_client.images.remove(image.id, force=force)
                 removed += 1
             except Exception as e:
-                logger.error(f"Failed to remove image {image.id}: {e}")
+                logger.error(f"Failed to remove image {image.id} on {host}: {e}")
                 failed += 1
                 failure_reasons.append(f"{image.id}: {str(e)}")
         
-        message = f'Removed {removed} unused images, {failed} failed'
+        message = f'Removed {removed} unused images on {host}, {failed} failed'
         if failure_reasons and len(failure_reasons) <= 3:
             message += f". Failures: {'; '.join(failure_reasons)}"
             
@@ -1811,49 +2815,33 @@ def remove_unused_images():
             'message': message
         })
     except Exception as e:
-        logger.error(f"Failed to remove unused images: {e}")
+        logger.error(f"Failed to remove unused images on {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
-
-@app.route('/api/images/<id>/remove', methods=['POST'])
-def remove_image(id):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    try:
-        force = request.args.get('force', 'false').lower() == 'true'
-        client.images.remove(id, force=force)
-        return jsonify({'status': 'success', 'message': 'Image removed successfully'})
-    except Exception as e:
-        logger.error(f"Failed to remove image {id}: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
     
 
-
-
-
-@app.route('/api/docker/hosts/test', methods=['POST'])
-def test_docker_host():
-    """Test connection to a Docker host"""
+# Simple functions to load/save hosts
+def load_hosts():
     try:
-        data = request.json
-        url = data.get('url')
-        
-        if not url:
-            return jsonify({'status': 'error', 'message': 'URL is required'})
-        
-        # Try to connect
-        test_client = docker.DockerClient(base_url=url, timeout=5)
-        test_client.ping()
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Connection successful'
-        })
+        if os.path.exists(HOSTS_FILE):
+            with open(HOSTS_FILE, 'r') as f:
+                return json.load(f)
+        return {"local": {"url": "", "connected": True}}
     except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': f'Connection failed: {str(e)}'
-        })
+        logger.error(f"Failed to load hosts: {e}")
+        return {"local": {"url": "", "connected": True}}
+
+def save_hosts(hosts):
+    try:
+        with open(HOSTS_FILE, 'w') as f:
+            json.dump(hosts, f)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save hosts: {e}")
+        return False
+
+
+
     
 # Caddy file routes
 @app.route('/api/caddy/file')
@@ -1967,30 +2955,101 @@ def remove_volume(name):
         logger.error(f"Failed to remove volume {name}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
-@app.route('/api/volumes/create', methods=['POST'])
-def create_volume():
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    
+# Enhanced project creation with host awareness
+@app.route('/api/compose/create', methods=['POST'])
+def create_compose_project_multihost():
+    """Create compose project with multi-host awareness"""
     try:
         data = request.json
-        if not data or 'name' not in data:
-            return jsonify({'status': 'error', 'message': 'Volume name required'})
+        project_name = data.get('project_name')
+        target_host = data.get('target_host', 'local')
         
-        volume = client.volumes.create(
-            name=data['name'],
-            driver=data.get('driver', 'local'),
-            labels=data.get('labels', {})
-        )
+        if not project_name:
+            return jsonify({'status': 'error', 'message': 'Project name is required'})
         
-        return jsonify({
-            'status': 'success',
-            'message': f'Volume {data["name"]} created successfully',
-            'volume': volume.attrs
-        })
+        # Always create project locally (files are managed locally)
+        result = create_project_locally(data)
+        
+        if result['success']:
+            # Optionally deploy to target host after creation
+            if data.get('auto_deploy', False) and target_host != 'local':
+                compose_file = result['compose_file']
+                deploy_result = execute_compose_on_host(
+                    os.path.join(COMPOSE_DIR, compose_file), 
+                    target_host, 
+                    'up'
+                )
+                
+                if deploy_result['success']:
+                    result['message'] += f' and deployed to {target_host}'
+                else:
+                    result['message'] += f' but deployment to {target_host} failed: {deploy_result["message"]}'
+            
+            return jsonify(result)
+        else:
+            return jsonify(result)
+            
     except Exception as e:
-        logger.error(f"Failed to create volume: {e}")
+        logger.error(f"Failed to create project: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
+
+def create_project_locally(data):
+    """Create project on local filesystem (existing logic)"""
+    # This is your existing create project logic
+    # Just extracted into a separate function for clarity
+    try:
+        project_name = data['project_name']
+        location_type = data.get('location_type', 'default')
+        
+        if not re.match(r'^[a-zA-Z0-9_-]+$', project_name):
+            return {
+                'status': 'error',
+                'success': False,
+                'message': 'Project name can only contain letters, numbers, underscores and hyphens'
+            }
+        
+        # Determine project directory
+        if location_type == 'default':
+            project_dir = os.path.join(COMPOSE_DIR, project_name)
+        elif location_type.startswith('extra_'):
+            extra_index = int(location_type.split('_')[1])
+            extra_dirs = EXTRA_COMPOSE_DIRS
+            if isinstance(extra_dirs, str):
+                extra_dirs = extra_dirs.split(':') if extra_dirs else []
+            
+            if 0 <= extra_index < len(extra_dirs) and extra_dirs[extra_index]:
+                project_dir = os.path.join(extra_dirs[extra_index], project_name)
+            else:
+                return {'status': 'error', 'success': False, 'message': 'Invalid location'}
+        else:
+            return {'status': 'error', 'success': False, 'message': 'Invalid location'}
+        
+        if os.path.exists(project_dir):
+            return {'status': 'error', 'success': False, 'message': f'Project already exists'}
+        
+        # Create directory and files
+        os.makedirs(project_dir, exist_ok=True)
+        
+        compose_content = data.get('compose_content', '')
+        compose_file_path = os.path.join(project_dir, 'docker-compose.yml')
+        with open(compose_file_path, 'w') as f:
+            f.write(compose_content)
+        
+        if data.get('create_env_file', False) and data.get('env_content'):
+            env_file_path = os.path.join(project_dir, '.env')
+            with open(env_file_path, 'w') as f:
+                f.write(data['env_content'])
+        
+        return {
+            'status': 'success',
+            'success': True,
+            'message': f'Project {project_name} created successfully',
+            'compose_file': os.path.join(project_name, 'docker-compose.yml'),
+            'project_dir': project_dir
+        }
+        
+    except Exception as e:
+        return {'status': 'error', 'success': False, 'message': str(e)}
 
 @app.route('/api/volumes/prune', methods=['POST'])
 def prune_volumes():
