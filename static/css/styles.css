@@ -97,16 +97,19 @@ header {
 }
 
 .logo {
-    max-height: 60px;
+    display: flex;
+    
+    color: var(--text-primary);
+    max-height: 50px;
     width: auto;
     max-width: 200px;
     cursor: pointer;
     padding: 4px 8px;
-    border-radius: 12px;
+    
     background: var(--bg-secondary);
-    border: 2px solid var(--border-color);
+    
     transition: all 0.2s ease;
-    display: flex;
+    
     align-items: center;
     justify-content: center;
 }
@@ -2433,4 +2436,27 @@ select {
         max-width: 80px;
         font-size: 0.75rem;
     }
+}
+/* Hide everything except theme selector on desktop in filter menu */
+@media (min-width: 769px) {
+    .filter-menu > *:not(#theme-selector-mobile) {
+        display: none !important;
+    }
+}
+
+/* Keep editor actions on one line */
+.editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    flex-wrap: nowrap;
+    
+}
+
+.editor-actions .form-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0;
+    white-space: nowrap;
 }

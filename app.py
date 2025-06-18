@@ -27,7 +27,7 @@ from functions import (
 from remote_hosts import host_manager
 
 # Add after imports
-__version__ = "1.7.2"
+__version__ = "1.7.3"
 
 # Initialize Flask app
 app = Flask(__name__)

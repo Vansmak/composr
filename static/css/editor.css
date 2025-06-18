@@ -513,3 +513,67 @@ label[for="env-content"] {
         font-size: 1rem;
     }
 }
+/* Override editor actions to keep on one line */
+.editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: nowrap !important;
+    margin-top: 1rem;
+}
+
+.editor-actions .form-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0;
+    white-space: nowrap;
+    flex-shrink: 0;
+    height: 20px; /* Match button height */
+}
+
+.editor-actions .form-group label {
+    margin-bottom: 0 !important;
+    height: auto;
+    display: flex;
+    align-items: center;
+}
+
+.editor-actions .filter-select {
+    height: 40px !important;
+    padding: 0.5rem;
+    box-sizing: border-box;
+}
+
+.editor-actions .btn {
+    height: 40px !important;
+    padding: 0.5rem 1rem;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1rem;
+
+}
+#compose-subtab > div:nth-child(4) > div:nth-child(1) > button:nth-child(3) {
+    margin-top: 15px;
+}
+
+/* Override mobile styles that force column layout */
+@media (max-width: 768px) {
+    .editor-actions {
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        gap: 0.5rem !important;
+    }
+    
+    .editor-actions .form-group {
+        flex-direction: row !important;
+        align-items: center !important;
+    }
+    
+    .editor-actions .btn {
+        width: auto !important;
+        flex-shrink: 0;
+    }
+}

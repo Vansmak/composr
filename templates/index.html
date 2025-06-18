@@ -274,7 +274,7 @@
 <body>
     <div class="container">
         <header>
-            <img src="/static/logo-musical.svg" alt="Composr Logo" class="logo" onclick="toggleFilterMenu()">
+            <img src="/static/logo.svg" alt="Composr Logo" class="logo" onclick="toggleFilterMenu()">
             <div class="system-stats">
                 <div class="stats-compact">
                     <span>Containers: <span id="total-containers">--</span></span>
@@ -455,13 +455,7 @@
             <div class="hosts-management">
                 <h3>🖥️ Docker Host Management</h3>
                 
-                <!-- Multi-host system overview -->
-                <div class="multi-host-overview">
-                    <h4>System Overview</h4>
-                    <div id="multi-host-stats" class="multi-host-stats">
-                        <!-- Will be populated by JavaScript -->
-                    </div>
-                </div>
+                
                 
                 <!-- Current hosts list -->
                 <div class="hosts-list">
@@ -735,84 +729,85 @@
                 </table>
             </div>
         </div>
-    </div>
-    <div id="backup-tab" class="tab-content">
-        <div class="backup-management">
-            <div class="backup-sections">
-                <!-- Create Backup Section -->
-                <div class="backup-section">
-                    <h3>📦 Create Backup</h3>
-                    
-                    <div class="backup-preview-card">
-                        <div id="backup-preview">
-                            <div class="backup-preview-loading">Loading...</div>
-                        </div>
-                    </div>
-                    
-                    <div class="backup-form">
-                        <div class="form-group">
-                            <label for="backup-name">Backup Name:</label>
-                            <input type="text" id="backup-name" placeholder="backup-20240115-1030" 
-                                class="backup-input">
-                        </div>
+    
+        <div id="backup-tab" class="tab-content">
+            <div class="backup-management">
+                <div class="backup-sections">
+                    <!-- Create Backup Section -->
+                    <div class="backup-section">
+                        <h3>📦 Create Backup</h3>
                         
-                        <div class="backup-options">
-                            <div class="checkbox-group">
-                                <label class="checkbox-label">
-                                    <input type="checkbox" id="include-compose-files" checked>
-                                    Include compose files
-                                </label>
-                                <label class="checkbox-label">
-                                    <input type="checkbox" id="include-env-files" checked>
-                                    Include .env files
-                                </label>
+                        <div class="backup-preview-card">
+                            <div id="backup-preview">
+                                <div class="backup-preview-loading">Loading...</div>
                             </div>
                         </div>
                         
-                        <div class="backup-actions">
-                            <button class="btn btn-success" onclick="createBackup()">
-                                📦 Create Backup
-                            </button>
+                        <div class="backup-form">
+                            <div class="form-group">
+                                <label for="backup-name">Backup Name:</label>
+                                <input type="text" id="backup-name" placeholder="backup-20240115-1030" 
+                                    class="backup-input">
+                            </div>
+                            
+                            <div class="backup-options">
+                                <div class="checkbox-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="include-compose-files" checked>
+                                        Include compose files
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="include-env-files" checked>
+                                        Include .env files
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="backup-actions">
+                                <button class="btn btn-success" onclick="createBackup()">
+                                    📦 Create Backup
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Restore Backup Section -->
+                    <div class="backup-section">
+                        <h3>📂 Restore Backup</h3>
+                        
+                        <div class="restore-form">
+                            <div class="file-upload">
+                                <input type="file" id="backup-file-input" accept=".zip" 
+                                    onchange="handleBackupFileSelect()" style="display: none;">
+                                <button class="btn btn-secondary" onclick="document.getElementById('backup-file-input').click()">
+                                    📁 Select Backup File
+                                </button>
+                                <div id="selected-file-name" class="selected-file" style="display: none;"></div>
+                            </div>
+                            
+                            <div class="restore-actions">
+                                <button class="btn btn-primary" onclick="restoreBackup()">
+                                    🔄 Restore Backup
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="restore-info">
+                            <p><strong>Restores:</strong> Compose files, .env files, container tags & URLs</p>
+                            <p><strong>Note:</strong> Volume data not included - backup separately</p>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Restore Backup Section -->
-                <div class="backup-section">
-                    <h3>📂 Restore Backup</h3>
-                    
-                    <div class="restore-form">
-                        <div class="file-upload">
-                            <input type="file" id="backup-file-input" accept=".zip" 
-                                onchange="handleBackupFileSelect()" style="display: none;">
-                            <button class="btn btn-secondary" onclick="document.getElementById('backup-file-input').click()">
-                                📁 Select Backup File
-                            </button>
-                            <div id="selected-file-name" class="selected-file" style="display: none;"></div>
-                        </div>
-                        
-                        <div class="restore-actions">
-                            <button class="btn btn-primary" onclick="restoreBackup()">
-                                🔄 Restore Backup
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="restore-info">
-                        <p><strong>Restores:</strong> Compose files, .env files, container tags & URLs</p>
-                        <p><strong>Note:</strong> Volume data not included - backup separately</p>
+                <!-- Last Backup Info -->
+                <div class="backup-history-section">
+                    <div id="backup-history">
+                        <div class="backup-history-loading">Loading history...</div>
                     </div>
                 </div>
             </div>
-            
-            <!-- Last Backup Info -->
-            <div class="backup-history-section">
-                <div id="backup-history">
-                    <div class="backup-history-loading">Loading history...</div>
-                </div>
-            </div>
-        </div>
-    </div>
+        
+    
     <!-- Scripts -->
     <script src="/static/js/editor.js"></script>
     <script src="/static/js/main.js"></script>
