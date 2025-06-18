@@ -270,6 +270,144 @@ Composr's backup system now includes multi-host support:
 
 **Backup Security**: Backup files contain your complete Docker configuration from all hosts including environment variables. Store backup files securely and avoid sharing them unless necessary.
 
+### Container Update Management 🆕 ⚠️ **EXPERIMENTAL - UNTESTED**
+
+**⚠️ WARNING: This feature is experimental and has not been thoroughly tested. Use with caution in production environments. Always test in a development environment first.**
+
+Composr can automatically detect and manage updates for your Docker containers across all connected hosts.
+
+#### Update Detection Features
+- **Smart Version Detection**: Automatically detects newer versions of container images
+- **Semantic Versioning Support**: Understands version patterns like `1.0.0 → 1.0.1`
+- **Docker Hub Integration**: Checks Docker Hub API for latest image versions
+- **Latest Tag Monitoring**: Detects when "latest" tags have been updated with newer images
+- **Multi-Host Scanning**: Scans containers across all connected Docker hosts
+
+#### Update Types Supported
+
+**🤖 Auto-Safe Updates** *(Experimental)*
+- Automatically applies **patch version updates only** (e.g., `1.2.3 → 1.2.4`)
+- **Skips minor/major versions** that may contain breaking changes (e.g., `1.2.x → 1.3.x`)
+- Only updates containers with specified safe tags (e.g., `stable`, `prod`)
+- Creates automatic backups before updating
+- Configurable schedule (default: disabled for safety)
+
+**🔄 Scheduled Repulls** *(Experimental)*
+- Automatically repulls same version tags to get latest images
+- Useful for `latest`, `main`, or `stable` tags that get updated regularly
+- Configurable interval (e.g., daily, weekly)
+- Preserves exact same container configuration
+
+#### Exclusion System
+Multiple ways to exclude containers from automatic updates:
+
+- **Tag Patterns**: Exclude containers with tags like `dev`, `test`, `latest`
+- **Image Patterns**: Exclude images with names containing `test-`, `debug-`
+- **Container Patterns**: Exclude containers with names like `temp-`, `backup-`
+- **Specific Exclusions**: Manually exclude individual containers
+- **Include-Only Mode**: Only check containers with specific tags like `prod`, `stable`
+
+#### How to Use
+
+1. **Enable Update Checking**:
+   - Go to **Hosts** tab → Container Update Management
+   - Click **⚙️ Update Settings**
+   - Enable **"Automatically check for container updates"**
+
+2. **Configure Safe Auto-Updates** *(Optional)*:
+   ```
+   ☑️ Automatically apply safe updates (patch versions only)
+   Tags to auto-update: stable, prod
+   ```
+
+3. **Configure Scheduled Repulls** *(Optional)*:
+   ```
+   ☑️ Automatically repull containers on schedule
+   Repull interval: 24 hours
+   Tags to repull: latest, main, stable
+   ```
+
+4. **Set Exclusion Patterns**:
+   ```
+   Exclude tag patterns: dev, test, nightly
+   Include tag patterns: stable, prod (optional)
+   ```
+
+#### Manual Update Operations
+- **Check for Updates**: Click "📦 Updates" button to scan all containers
+- **Batch Updates**: Update multiple containers simultaneously with checkboxes
+- **Individual Updates**: Update single containers with version selection
+- **Update Preview**: See what would be updated before applying changes
+
+#### Update Detection Examples
+
+| Container Image | Detection Method | Update Available |
+|---|---|---|
+| `nginx:1.20` | Version comparison | `nginx:1.21` ✅ |
+| `postgres:latest` | Timestamp comparison | Newer `latest` image ✅ |
+| `myapp:v2.1.0` | Semantic versioning | `v2.1.1`, `v2.2.0` ✅ |
+| `redis:alpine` | Tag-based | Updated `alpine` tag ✅ |
+| `custom:dev` | Excluded by pattern | Skipped ⏭️ |
+
+#### Safety Features
+- **Backup Creation**: Automatic backups before any updates
+- **Rollback Support**: Restore previous version if update fails
+- **Compose Integration**: Updates compose files and redeploys safely
+- **Error Handling**: Detailed error reporting and recovery options
+- **Dry Run Mode**: Preview what would be updated without applying changes
+
+#### Multi-Host Support
+- Works across all connected Docker hosts
+- Host-aware update routing
+- Unified update management interface
+- Per-host update status and statistics
+
+#### API Endpoints *(For Advanced Users)*
+```bash
+# Check for updates
+POST /api/container-updates/check
+
+# Update specific container
+POST /api/container-updates/update
+
+# Batch update multiple containers
+POST /api/container-updates/batch-update
+
+# Manage exclusions
+GET/POST /api/container-updates/exclusions
+
+# Trigger auto-maintenance
+POST /api/container-updates/auto-maintenance
+```
+
+#### ⚠️ Important Safety Notes
+
+**🔴 CRITICAL: This feature is experimental and untested in production environments.**
+
+- **Test thoroughly** in development before using in production
+- **Always backup** your containers and compose files before enabling auto-updates
+- **Start with exclusions** - exclude critical production containers initially
+- **Monitor logs** for update operations and errors
+- **Verify updates** work correctly before enabling automation
+- **Have rollback plan** ready in case updates cause issues
+
+**Recommended First Steps:**
+1. Enable update **checking only** (disable auto-updates)
+2. Test manual updates on non-critical containers
+3. Verify backup and rollback functionality
+4. Gradually enable auto-updates for safe containers only
+5. Monitor for several weeks before fully trusting the system
+
+**Not Recommended For:**
+- Database containers without proper backup strategies
+- Containers with custom configurations that may break
+- Production systems without thorough testing
+- Containers that require manual intervention during updates
+- Any container where downtime is not acceptable
+
+#### Configuration Location
+Update settings are stored in: `${METADATA_DIR}/container_update_settings.json`
+
 ## Screenshots
 
 ![Composr Main Screen](https://github.com/user-attachments/assets/49876da2-7131-4430-817a-d16f4ef6f673)

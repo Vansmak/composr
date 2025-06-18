@@ -3,3 +3,4 @@ docker
 PyYAML
 pytz
 gunicorn
+requests>=2.25.0

@@ -7,7 +7,7 @@ import time
 import re
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-
+from container_updates import ContainerUpdateManager
 # Add these new imports for backup functionality
 import zipfile
 import tempfile
@@ -22,11 +22,12 @@ from functions import (
     extract_env_from_compose, calculate_uptime, find_caddy_container, get_compose_files_cached
 )
 
+
 # Import your existing host manager
 from remote_hosts import host_manager
 
 # Add after imports
-__version__ = "1.7.1"
+__version__ = "1.7.2"
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -38,6 +39,8 @@ METADATA_DIR = os.environ.get('METADATA_DIR', '/app')
 CONTAINER_METADATA_FILE = os.path.join(METADATA_DIR, 'container_metadata.json')
 CADDY_CONFIG_DIR = os.getenv('CADDY_CONFIG_DIR', '')
 CADDY_CONFIG_FILE = os.getenv('CADDY_CONFIG_FILE', 'Caddyfile')
+
+
 
 # Ensure metadata directory exists
 os.makedirs(os.path.dirname(CONTAINER_METADATA_FILE), exist_ok=True)
@@ -74,6 +77,12 @@ client = host_manager.get_client()
 
 logger.info(f"Composr initialized with client: {'available' if client else 'unavailable'}")
 logger.info(f"Connected hosts: {list(host_manager.get_connected_hosts())}")
+# Initialize the container update manager
+container_update_manager = ContainerUpdateManager(
+    compose_dir=COMPOSE_DIR,
+    extra_compose_dirs=EXTRA_COMPOSE_DIRS,
+    metadata_dir=METADATA_DIR
+)
 
 # Main route
 @app.route('/')
@@ -3750,5 +3759,504 @@ def create_compose_project():
     except Exception as e:
         logger.error(f"Failed to create project: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': f'Failed to create project: {str(e)}'})
+    
+# Add these endpoints to your app.py
+
+
+
+@app.route('/api/container-updates/check', methods=['POST'])
+def check_container_updates():
+    """Check for available updates for all containers"""
+    try:
+        data = request.json or {}
+        force = data.get('force', False)
+        
+        # Get all containers with their image info
+        containers = container_update_manager.get_all_containers_with_images(host_manager)
+        
+        if not containers:
+            return jsonify({
+                'status': 'success',
+                'message': 'No containers found',
+                'total_checked': 0,
+                'updates_available': 0,
+                'containers': {}
+            })
+        
+        # Check for updates
+        
+        update_results = container_update_manager.check_for_container_updates(containers)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Checked {update_results["total_checked"]} containers',
+            **update_results
+        })
+        
+    except Exception as e:
+        logger.error(f"Container update check failed: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/container-updates/status')
+def get_container_updates_status():
+    """Get cached container update status"""
+    try:
+        cached_results = container_update_manager.load_update_cache()
+        settings = container_update_manager.settings
+        
+        return jsonify({
+            'status': 'success',
+            'cache': cached_results,
+            'settings': settings,
+            'last_check': cached_results.get('last_check', 0)
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to get container update status: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/container-updates/settings', methods=['GET', 'POST'])
+def container_update_settings():
+    """Get or update container update settings"""
+    try:
+        if request.method == 'GET':
+            return jsonify({
+                'status': 'success',
+                'settings': container_update_manager.settings
+            })
+        else:
+            data = request.json or {}
+            
+            # Update settings
+            for key, value in data.items():
+                if key in container_update_manager.default_settings:
+                    container_update_manager.settings[key] = value
+            
+            container_update_manager.save_settings()
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Container update settings saved successfully'
+            })
+            
+    except Exception as e:
+        logger.error(f"Container update settings error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/container-updates/update', methods=['POST'])
+def update_container():
+    """Update a specific container to a new image tag"""
+    try:
+        data = request.json or {}
+        container_id = data.get('container_id')
+        host = data.get('host', 'local')
+        target_tag = data.get('target_tag')
+        
+        if not container_id or not target_tag:
+            return jsonify({
+                'status': 'error',
+                'message': 'container_id and target_tag are required'
+            })
+        
+        logger.info(f"Updating container {container_id} on {host} to tag {target_tag}")
+        
+        result = container_update_manager.update_container(
+            container_id=container_id,
+            host=host,
+            target_tag=target_tag,
+            host_manager=host_manager
+        )
+        
+        if result['success']:
+            return jsonify({
+                'status': 'success',
+                'message': result['message'],
+                'details': result
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': result['error'],
+                'details': result
+            })
+            
+    except Exception as e:
+        logger.error(f"Container update failed: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/container-updates/batch-update', methods=['POST'])
+def batch_update_containers():
+    """Update multiple containers"""
+    try:
+        data = request.json or {}
+        updates = data.get('updates', [])  # List of {container_id, host, target_tag}
+        
+        if not updates:
+            return jsonify({
+                'status': 'error',
+                'message': 'No updates specified'
+            })
+        
+        results = {
+            'successful': 0,
+            'failed': 0,
+            'details': []
+        }
+        
+        for update in updates:
+            container_id = update.get('container_id')
+            host = update.get('host', 'local')
+            target_tag = update.get('target_tag')
+            
+            if not container_id or not target_tag:
+                results['failed'] += 1
+                results['details'].append({
+                    'container_id': container_id,
+                    'success': False,
+                    'error': 'Missing container_id or target_tag'
+                })
+                continue
+            
+            try:
+                result = container_update_manager.update_container(
+                    container_id=container_id,
+                    host=host,
+                    target_tag=target_tag,
+                    host_manager=host_manager
+                )
+                
+                if result['success']:
+                    results['successful'] += 1
+                else:
+                    results['failed'] += 1
+                
+                results['details'].append({
+                    'container_id': container_id,
+                    'host': host,
+                    'target_tag': target_tag,
+                    'success': result['success'],
+                    'message': result.get('message', result.get('error', '')),
+                    **result
+                })
+                
+            except Exception as e:
+                results['failed'] += 1
+                results['details'].append({
+                    'container_id': container_id,
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Batch update completed: {results["successful"]} successful, {results["failed"]} failed',
+            'results': results
+        })
+        
+    except Exception as e:
+        logger.error(f"Batch update failed: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/container-updates/available-tags/<container_id>')
+def get_available_tags(container_id):
+    """Get available tags for a container's image"""
+    try:
+        host = request.args.get('host', 'local')
+        
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({
+                'status': 'error',
+                'message': f'Host {host} not available'
+            })
+        
+        container = client.containers.get(container_id)
+        current_image = container.image.tags[0] if container.image.tags else container.image.id
+        
+        # Parse image name
+        image_info = container_update_manager.parse_image_name(current_image)
+        
+        # Get available tags
+        available_tags = container_update_manager.get_available_tags(image_info)
+        
+        # Filter and sort tags
+        version_tags = [tag for tag in available_tags if container_update_manager.is_version_tag(tag)]
+        version_tags.sort(key=container_update_manager.version_sort_key, reverse=True)
+        
+        other_tags = [tag for tag in available_tags if not container_update_manager.is_version_tag(tag)]
+        other_tags.sort()
+        
+        return jsonify({
+            'status': 'success',
+            'current_tag': image_info['tag'],
+            'image_name': image_info['name'],
+            'version_tags': version_tags[:20],  # Limit response size
+            'other_tags': other_tags[:20],
+            'total_available': len(available_tags)
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to get available tags for {container_id}: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/container-updates/preview')
+def preview_container_updates():
+    """Preview what updates would be available without actually checking registries"""
+    try:
+        # Get all containers with image info
+        containers = container_update_manager.get_all_containers_with_images(host_manager)
+        
+        preview = {
+            'total_containers': len(containers),
+            'checkable_containers': 0,
+            'skipped_containers': 0,
+            'breakdown': {
+                'version_tagged': 0,
+                'latest_tagged': 0,
+                'custom_tagged': 0,
+                'compose_managed': 0,
+                'standalone': 0
+            },
+            'registries': {}
+        }
+        
+        for container in containers:
+            image_info = container_update_manager.parse_image_name(container['image_full'])
+            
+            # Count by registry
+            registry = image_info['registry']
+            if registry not in preview['registries']:
+                preview['registries'][registry] = 0
+            preview['registries'][registry] += 1
+            
+            # Count by tag type
+            if container_update_manager.is_version_tag(image_info['tag']):
+                preview['breakdown']['version_tagged'] += 1
+                preview['checkable_containers'] += 1
+            elif image_info['tag'] in ['latest', 'main', 'master', 'stable']:
+                preview['breakdown']['latest_tagged'] += 1
+                preview['checkable_containers'] += 1
+            else:
+                preview['breakdown']['custom_tagged'] += 1
+                
+            # Check if would be skipped
+            if container_update_manager.should_skip_image(image_info):
+                preview['skipped_containers'] += 1
+            
+            # Count management type
+            if container['is_compose_managed']:
+                preview['breakdown']['compose_managed'] += 1
+            else:
+                preview['breakdown']['standalone'] += 1
+        
+        return jsonify({
+            'status': 'success',
+            'preview': preview
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to preview container updates: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/container-updates/rollback', methods=['POST'])
+def rollback_container_update():
+    """Rollback a container update using backup compose file"""
+    try:
+        data = request.json or {}
+        container_id = data.get('container_id')
+        host = data.get('host', 'local')
+        backup_file = data.get('backup_file')
+        
+        if not container_id or not backup_file:
+            return jsonify({
+                'status': 'error',
+                'message': 'container_id and backup_file are required'
+            })
+        
+        if not os.path.exists(backup_file):
+            return jsonify({
+                'status': 'error',
+                'message': f'Backup file not found: {backup_file}'
+            })
+        
+        # Restore the backup file
+        original_file = backup_file.replace('.backup-', '').split('-')[0] + '.yml'
+        
+        # Copy backup back to original location
+        import shutil
+        shutil.copy2(backup_file, original_file)
+        
+        # Redeploy the service
+        result = container_update_manager.deploy_updated_compose(
+            compose_file=original_file,
+            service=data.get('service_name', ''),
+            host=host
+        )
+        
+        if result['success']:
+            return jsonify({
+                'status': 'success',
+                'message': f'Successfully rolled back container {container_id}',
+                'details': result
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': f'Rollback failed: {result["error"]}',
+                'details': result
+            })
+            
+    except Exception as e:
+        logger.error(f"Container rollback failed: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+# Background task for periodic update checks
+def start_container_update_checker():
+    """Start background thread for periodic container update checks"""
+    import threading
+    import time
+    
+    def update_checker_worker():
+        while True:
+            try:
+                settings = container_update_manager.settings
+                
+                if not settings['auto_check_enabled']:
+                    time.sleep(3600)  # Check settings every hour
+                    continue
+                
+                # Check if it's time for an update check
+                last_check = container_update_manager.load_update_cache().get('last_check', 0)
+                check_interval = settings['check_interval_hours'] * 3600
+                
+                if time.time() - last_check >= check_interval:
+                    logger.info("Performing scheduled container update check")
+                    
+                    try:
+                        containers = container_update_manager.get_all_containers_with_images(host_manager)
+                        if containers:
+                            update_results = container_update_manager.check_for_container_updates(containers)
+                            
+                            if update_results['updates_available'] > 0 and settings['notify_on_updates']:
+                                logger.info(f"Found {update_results['updates_available']} container updates available")
+                                # Could trigger notifications here
+                                
+                    except Exception as e:
+                        logger.error(f"Scheduled update check failed: {e}")
+                
+                # Sleep for 1 hour before checking again
+                time.sleep(3600)
+                
+            except Exception as e:
+                logger.error(f"Update checker worker error: {e}")
+                time.sleep(3600)
+    
+    # Start the background thread
+    update_thread = threading.Thread(target=update_checker_worker, daemon=True)
+    update_thread.start()
+    logger.info("Container update checker started")
+
+@app.route('/api/container-updates/auto-maintenance', methods=['POST'])
+def trigger_auto_maintenance():
+    """Trigger automatic updates and scheduled repulls"""
+    try:
+        result = container_update_manager.perform_auto_updates(host_manager)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Auto-maintenance completed: {result["auto_updates"]} updates, {result["repulls"]} repulls',
+            'auto_updates': result['auto_updates'],
+            'repulls': result['repulls'],
+            'errors': result['errors']
+        })
+        
+    except Exception as e:
+        logger.error(f"Auto-maintenance failed: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+# Update the background checker to include auto-maintenance
+def start_container_update_checker():
+    """Start background thread for periodic container update checks"""
+    
+    
+    def update_checker_worker():
+        while True:
+            try:
+                settings = container_update_manager.settings
+                
+                if not settings['auto_check_enabled']:
+                    time.sleep(3600)  # Check settings every hour
+                    continue
+                
+                # Check if it's time for an update check
+                last_check = container_update_manager.load_update_cache().get('last_check', 0)
+                check_interval = settings['check_interval_hours'] * 3600
+                
+                if time.time() - last_check >= check_interval:
+                    logger.info("Performing scheduled container update check")
+                    
+                    try:
+                        # First, do the regular update check
+                        containers = container_update_manager.get_all_containers_with_images(host_manager)
+                        if containers:
+                            update_results = container_update_manager.check_for_container_updates(containers)
+                            
+                            if update_results['updates_available'] > 0 and settings['notify_on_updates']:
+                                logger.info(f"Found {update_results['updates_available']} container updates available")
+                        
+                        # Then, perform auto-maintenance if enabled
+                        if settings.get('auto_update_enabled') or settings.get('scheduled_repull_enabled'):
+                            logger.info("Performing automatic maintenance...")
+                            auto_result = container_update_manager.perform_auto_updates(host_manager)
+                            
+                            if auto_result['auto_updates'] > 0 or auto_result['repulls'] > 0:
+                                logger.info(f"Auto-maintenance: {auto_result['auto_updates']} updates, {auto_result['repulls']} repulls")
+                                
+                    except Exception as e:
+                        logger.error(f"Scheduled maintenance failed: {e}")
+                
+                # Sleep for 1 hour before checking again
+                time.sleep(3600)
+                
+            except Exception as e:
+                logger.error(f"Update checker worker error: {e}")
+                time.sleep(3600)
+    
+    # Start the background thread
+    update_thread = threading.Thread(target=update_checker_worker, daemon=True)
+    update_thread.start()
+    logger.info("Container update checker started")
+
+# Call this after your app initialization
+start_container_update_checker()
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5003, debug=False)

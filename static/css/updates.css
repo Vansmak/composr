@@ -1,0 +1,767 @@
+/* Container Update Management Styles - Add to your styles.css */
+
+/* Container Update Badge in Header */
+.container-update-badge {
+    background: linear-gradient(135deg, #28a745, #20c997);
+    color: white;
+    padding: 0.4rem 0.8rem;
+    border-radius: 1.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-left: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    animation: pulse-update 3s infinite;
+}
+
+.container-update-badge:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
+}
+
+.container-update-badge .update-badge-icon {
+    animation: bounce 2s infinite;
+}
+
+@keyframes pulse-update {
+    0%, 100% { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
+    50% { box-shadow: 0 2px 15px rgba(40, 167, 69, 0.4); }
+}
+
+@keyframes bounce {
+    0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+    40% { transform: translateY(-3px); }
+    60% { transform: translateY(-1px); }
+}
+
+/* Update Indicator on Container Cards */
+.update-indicator {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    background: linear-gradient(135deg, #28a745, #20c997);
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 1rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.update-indicator:hover {
+    transform: scale(1.05);
+    box-shadow: 0 3px 10px rgba(40, 167, 69, 0.4);
+}
+
+.update-indicator .update-icon {
+    animation: rotate 2s linear infinite;
+    font-size: 0.8rem;
+}
+
+.update-indicator .update-text {
+    white-space: nowrap;
+}
+
+/* Container Updates Modal */
+.container-updates-modal .modal-content {
+    max-width: 800px;
+    width: 95vw;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.container-updates-content {
+    padding: 1.5rem;
+}
+
+.update-summary {
+    background: var(--bg-secondary);
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.summary-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.stat-item {
+    text-align: center;
+    padding: 1rem;
+    background: var(--bg-card);
+    border-radius: 0.25rem;
+    border: 1px solid var(--border-color);
+}
+
+.stat-item.success {
+    border-left: 4px solid var(--accent-success);
+}
+
+.stat-item.error {
+    border-left: 4px solid var(--accent-error);
+}
+
+.stat-value {
+    display: block;
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--accent-primary);
+}
+
+.stat-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.update-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+/* Updates Sections */
+.updates-section {
+    margin-bottom: 2rem;
+}
+
+.updates-section h4 {
+    margin: 0 0 1rem 0;
+    color: var(--text-primary);
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.updates-list,
+.up-to-date-list,
+.errors-list {
+    background: var(--bg-card);
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.update-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s ease;
+}
+
+.update-item:last-child {
+    border-bottom: none;
+}
+
+.update-item:hover {
+    background: var(--bg-hover);
+}
+
+.update-item.up-to-date {
+    opacity: 0.8;
+}
+
+.update-item.error {
+    background: var(--bg-error-subtle);
+    border-left: 4px solid var(--accent-error);
+}
+
+.update-item-info {
+    flex: 1;
+}
+
+.update-item-info strong {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--text-primary);
+}
+
+.version-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.current-version {
+    background: var(--bg-tertiary);
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.2rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.new-version {
+    background: var(--accent-success);
+    color: white;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.2rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.version-arrow {
+    color: var(--accent-primary);
+    font-weight: bold;
+}
+
+.error-message {
+    color: var(--accent-error);
+    font-size: 0.85rem;
+    margin-top: 0.25rem;
+}
+
+.update-item-actions {
+    margin-left: 1rem;
+}
+
+.more-items {
+    padding: 0.75rem 1rem;
+    text-align: center;
+    color: var(--text-secondary);
+    font-style: italic;
+    background: var(--bg-tertiary);
+}
+
+/* Individual Container Update Modal */
+.container-update-modal .modal-content {
+    max-width: 600px;
+    width: 90vw;
+}
+
+.container-update-info {
+    padding: 1.5rem;
+}
+
+.container-update-info h4 {
+    margin: 0 0 1rem 0;
+    color: var(--text-primary);
+}
+
+.version-update-info {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: var(--bg-secondary);
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.current-version-info,
+.new-version-info {
+    text-align: center;
+}
+
+.new-version-info select {
+    margin-top: 0.5rem;
+    padding: 0.4rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-width: 150px;
+}
+
+.update-options {
+    margin: 1.5rem 0;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 0.25rem;
+    border: 1px solid var(--border-color);
+}
+
+.update-info {
+    margin: 1rem 0;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 0.25rem;
+    border: 1px solid var(--border-color);
+}
+
+.update-info p {
+    margin: 0.5rem 0;
+    color: var(--text-secondary);
+}
+
+.update-warning {
+    margin: 1.5rem 0;
+    padding: 1rem;
+    background: var(--bg-warning-subtle);
+    border: 1px solid var(--accent-warning);
+    border-radius: 0.25rem;
+    color: var(--text-primary);
+}
+
+.update-warning strong {
+    color: var(--accent-warning);
+}
+
+/* Batch Update Modal */
+.batch-update-modal .modal-content {
+    max-width: 700px;
+    width: 95vw;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.batch-update-info {
+    padding: 1.5rem;
+}
+
+.batch-update-list {
+    max-height: 400px;
+    overflow-y: auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    margin: 1rem 0;
+}
+
+.batch-update-item {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.batch-update-item:last-child {
+    border-bottom: none;
+}
+
+.batch-update-item .checkbox-label {
+    display: flex !important;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin: 0 !important;
+    cursor: pointer;
+}
+
+.batch-update-item input[type="checkbox"] {
+    margin-top: 0.2rem;
+    flex-shrink: 0;
+}
+
+.batch-item-info {
+    flex: 1;
+}
+
+.batch-item-info strong {
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.version-change {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.batch-options {
+    margin: 1.5rem 0;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 0.25rem;
+    border: 1px solid var(--border-color);
+}
+
+.batch-options .checkbox-label {
+    margin-bottom: 0.5rem !important;
+}
+
+.batch-warning {
+    margin: 1rem 0;
+    padding: 1rem;
+    background: var(--bg-warning-subtle);
+    border: 1px solid var(--accent-warning);
+    border-radius: 0.25rem;
+}
+
+/* Batch Results Modal */
+.batch-results-modal .modal-content {
+    max-width: 600px;
+    width: 90vw;
+}
+
+.results-summary {
+    margin-bottom: 1.5rem;
+}
+
+.results-section {
+    margin-bottom: 1.5rem;
+}
+
+.results-section h4 {
+    margin: 0 0 1rem 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.results-list {
+    background: var(--bg-card);
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.result-item {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.result-item:last-child {
+    border-bottom: none;
+}
+
+.result-item.success {
+    border-left: 4px solid var(--accent-success);
+}
+
+.result-item.error {
+    border-left: 4px solid var(--accent-error);
+}
+
+.result-item strong {
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.result-message {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.result-message.error {
+    color: var(--accent-error);
+}
+
+/* Container Update Settings Modal */
+.container-update-settings-modal .modal-content {
+    max-width: 600px;
+    width: 90vw;
+}
+
+.container-update-settings-modal .form-group {
+    margin-bottom: 1.5rem;
+}
+
+.container-update-settings-modal label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.container-update-settings-modal input[type="number"],
+.container-update-settings-modal input[type="text"] {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.container-update-settings-modal small {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.container-update-settings-modal .update-info {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 0.25rem;
+    border: 1px solid var(--border-color);
+}
+
+.container-update-settings-modal .update-info h4 {
+    margin: 0 0 0.5rem 0;
+    color: var(--accent-primary);
+}
+
+.container-update-settings-modal .update-info ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+}
+
+.container-update-settings-modal .update-info li {
+    margin: 0.25rem 0;
+    color: var(--text-secondary);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .container-update-badge {
+        margin-left: 0.5rem;
+        padding: 0.3rem 0.6rem;
+        font-size: 0.7rem;
+    }
+    
+    .container-update-badge .update-badge-text {
+        display: none;
+    }
+    
+    .update-indicator {
+        position: static;
+        margin: 0.5rem 0;
+        align-self: flex-start;
+    }
+    
+    .update-indicator .update-text {
+        display: none;
+    }
+    
+    .version-update-info {
+        flex-direction: column;
+        gap: 1rem;
+        text-align: center;
+    }
+    
+    .version-arrow {
+        transform: rotate(90deg);
+    }
+    
+    .summary-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .update-actions {
+        justify-content: stretch;
+    }
+    
+    .update-actions button {
+        flex: 1;
+    }
+    
+    .update-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+    
+    .update-item-actions {
+        margin-left: 0;
+        align-self: stretch;
+    }
+    
+    .version-info {
+        flex-wrap: wrap;
+    }
+    
+    .batch-update-item .checkbox-label {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
+
+/* Dark theme adjustments */
+[data-theme="refined-dark"] .container-update-badge,
+[data-theme="night-owl"] .container-update-badge,
+[data-theme="nord"] .container-update-badge {
+    box-shadow: 0 2px 8px rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="refined-dark"] .container-update-badge:hover,
+[data-theme="night-owl"] .container-update-badge:hover,
+[data-theme="nord"] .container-update-badge:hover {
+    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+}
+
+[data-theme="refined-dark"] .update-indicator,
+[data-theme="night-owl"] .update-indicator,
+[data-theme="nord"] .update-indicator {
+    box-shadow: 0 2px 6px rgba(255, 255, 255, 0.1);
+}
+
+/* Light theme adjustments */
+[data-theme="light-breeze"] .container-updates-modal {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light-breeze"] .update-indicator {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* Animation for container cards with updates */
+.container-card:has(.update-indicator) {
+    animation: subtle-glow 4s infinite;
+}
+
+@keyframes subtle-glow {
+    0%, 100% { 
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); 
+    }
+    50% { 
+        box-shadow: 0 2px 12px rgba(40, 167, 69, 0.2); 
+    }
+}
+
+/* Loading states */
+.update-checking {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.update-checking::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid var(--accent-primary);
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Update status indicators */
+.update-status-unknown {
+    color: var(--text-secondary);
+}
+
+.update-status-available {
+    color: var(--accent-success);
+    font-weight: 600;
+}
+
+.update-status-uptodate {
+    color: var(--accent-info);
+}
+
+.update-status-error {
+    color: var(--accent-error);
+}
+
+/* Custom scrollbar for long lists */
+.updates-list::-webkit-scrollbar,
+.batch-update-list::-webkit-scrollbar,
+.results-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.updates-list::-webkit-scrollbar-track,
+.batch-update-list::-webkit-scrollbar-track,
+.results-list::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+.updates-list::-webkit-scrollbar-thumb,
+.batch-update-list::-webkit-scrollbar-thumb,
+.results-list::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+.updates-list::-webkit-scrollbar-thumb:hover,
+.batch-update-list::-webkit-scrollbar-thumb:hover,
+.results-list::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-primary);
+}
+
+/* Progress indicators for batch operations */
+.batch-progress {
+    margin: 1rem 0;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 0.25rem;
+    border: 1px solid var(--border-color);
+}
+
+.batch-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 0.5rem 0;
+}
+
+.batch-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-success), var(--accent-primary));
+    transition: width 0.3s ease;
+    border-radius: 4px;
+}
+
+.batch-progress-text {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+/* Tooltip styles for update information */
+.update-tooltip {
+    position: relative;
+    cursor: help;
+}
+
+.update-tooltip::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-tooltip);
+    color: var(--text-tooltip);
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.update-tooltip:hover::before {
+    opacity: 1;
+}
+
+/* Success and error state animations */
+.update-success {
+    animation: success-pulse 0.6s ease-out;
+}
+
+.update-error {
+    animation: error-shake 0.6s ease-out;
+}
+
+@keyframes success-pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); background-color: var(--accent-success); }
+    100% { transform: scale(1); }
+}
+
+@keyframes error-shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
