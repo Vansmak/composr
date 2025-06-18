@@ -26,7 +26,7 @@ from functions import (
 from remote_hosts import host_manager
 
 # Add after imports
-__version__ = "1.7.0"
+__version__ = "1.7.1"
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -2558,7 +2558,6 @@ def save_env_file():
         return jsonify({'status': 'error', 'message': str(e)})
 
 # Image management routes
-# 3. Update images endpoint for multi-host
 @app.route('/api/images')
 def get_images_multihost():
     """Get images from all connected hosts"""
@@ -2594,7 +2593,7 @@ def get_images_multihost():
                             try:
                                 for container in client.containers.list(all=True):
                                     if container.image.id == image.id:
-                                        used_by.append(f"{container.name} ({host_name})")
+                                        used_by.append(f"{container.name}")
                             except Exception as e:
                                 logger.warning(f"Failed to get container usage for image on {host_name}: {e}")
                             
@@ -2885,75 +2884,110 @@ def save_caddy_file():
     except Exception as e:
         logger.error(f"Failed to save Caddy file: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
+    
 # Volume management routes
 @app.route('/api/volumes')
 def get_volumes():
-    if client is None:
-        logger.error("Docker client not initialized")
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    
     try:
-        volumes = []
-        for volume in client.volumes.list():
-            volume_data = volume.attrs
-            
-            # Check which containers are using this volume
-            containers_using = []
-            for container in client.containers.list(all=True):
-                mounts = container.attrs.get('Mounts', [])
-                for mount in mounts:
-                    if mount.get('Name') == volume.name:
-                        containers_using.append(container.name)
-                        break
-            
-            volumes.append({
-                'name': volume.name,
-                'driver': volume_data.get('Driver', 'unknown'),
-                'created': volume_data.get('CreatedAt', 'unknown'),
-                'mountpoint': volume_data.get('Mountpoint', ''),
-                'scope': volume_data.get('Scope', 'local'),
-                'labels': volume_data.get('Labels', {}),
-                'in_use': len(containers_using) > 0,
-                'containers': containers_using
-            })
+        all_volumes = []
+        hosts_status = host_manager.get_hosts_status()
         
-        logger.debug(f"Returning {len(volumes)} volumes")
-        return jsonify(volumes)
+        for host_name, status_info in hosts_status.items():
+            if status_info['connected']:
+                client = host_manager.get_client(host_name)
+                if client:
+                    try:
+                        for volume in client.volumes.list():
+                            volume_data = volume.attrs
+                            
+                            # Check which containers are using this volume on this host
+                            containers_using = []
+                            try:
+                                for container in client.containers.list(all=True):
+                                    mounts = container.attrs.get('Mounts', [])
+                                    for mount in mounts:
+                                        if mount.get('Name') == volume.name:
+                                            containers_using.append(container.name)
+                                            break
+                            except Exception as e:
+                                logger.warning(f"Failed to get container usage for volume on {host_name}: {e}")
+                            
+                            all_volumes.append({
+                                'name': volume.name,
+                                'driver': volume_data.get('Driver', 'unknown'),
+                                'created': volume_data.get('CreatedAt', 'unknown'),
+                                'mountpoint': volume_data.get('Mountpoint', ''),
+                                'scope': volume_data.get('Scope', 'local'),
+                                'labels': volume_data.get('Labels', {}),
+                                'in_use': len(containers_using) > 0,
+                                'containers': containers_using,
+                                'host': host_name,
+                                'host_display': status_info.get('name', host_name)
+                            })
+                    except Exception as e:
+                        logger.error(f"Failed to get volumes from host {host_name}: {e}")
+        
+        logger.debug(f"Returning {len(all_volumes)} volumes from all hosts")
+        return jsonify(all_volumes)
     
     except Exception as e:
-        logger.error(f"Failed to list volumes: {e}", exc_info=True)
+        logger.error(f"Failed to list volumes from all hosts: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': f'Failed to list volumes: {str(e)}'})
 
 @app.route('/api/volumes/<name>/inspect')
 def inspect_volume(name):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    
     try:
+        host = request.args.get('host', 'local')
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         volume = client.volumes.get(name)
         return jsonify({
             'status': 'success',
             'data': volume.attrs
         })
     except Exception as e:
-        logger.error(f"Failed to inspect volume {name}: {e}")
+        logger.error(f"Failed to inspect volume {name} on {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
 @app.route('/api/volumes/<name>/remove', methods=['POST'])
 def remove_volume(name):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    
     try:
+        data = request.json or {}
+        host = data.get('host', 'local')
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         volume = client.volumes.get(name)
         volume.remove()
         return jsonify({
             'status': 'success',
-            'message': f'Volume {name} removed successfully'
+            'message': f'Volume {name} removed successfully from {host}'
         })
     except Exception as e:
-        logger.error(f"Failed to remove volume {name}: {e}")
+        logger.error(f"Failed to remove volume {name} from {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/volumes/prune', methods=['POST'])
+def prune_volumes():
+    try:
+        data = request.json or {}
+        host = data.get('host', 'local')
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
+        result = client.volumes.prune()
+        return jsonify({
+            'status': 'success',
+            'message': f'Pruned {len(result.get("VolumesDeleted", []))} volumes on {host}, reclaimed {result.get("SpaceReclaimed", 0)} bytes'
+        })
+    except Exception as e:
+        logger.error(f"Failed to prune volumes on {host}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
 
 # Enhanced project creation with host awareness
 @app.route('/api/compose/create', methods=['POST'])
@@ -3051,101 +3085,102 @@ def create_project_locally(data):
     except Exception as e:
         return {'status': 'error', 'success': False, 'message': str(e)}
 
-@app.route('/api/volumes/prune', methods=['POST'])
-def prune_volumes():
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    
-    try:
-        result = client.volumes.prune()
-        return jsonify({
-            'status': 'success',
-            'message': f'Pruned {len(result.get("VolumesDeleted", []))} volumes, reclaimed {result.get("SpaceReclaimed", 0)} bytes'
-        })
-    except Exception as e:
-        logger.error(f"Failed to prune volumes: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+
 
 # Network management routes
 @app.route('/api/networks')
 def get_networks():
-    if client is None:
-        logger.error("Docker client not initialized")
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    
     try:
-        networks = []
-        for network in client.networks.list():
-            network_data = network.attrs
-            
-            # Get containers in this network
-            containers_in_network = []
-            for container_id, container_info in network_data.get('Containers', {}).items():
-                containers_in_network.append(container_info.get('Name', 'unknown'))
-            
-            # Get subnet if available
-            ipam_config = network_data.get('IPAM', {}).get('Config', [])
-            subnet = ipam_config[0].get('Subnet', 'N/A') if ipam_config else 'N/A'
-            
-            networks.append({
-                'id': network.short_id,
-                'name': network.name,
-                'driver': network_data.get('Driver', 'unknown'),
-                'scope': network_data.get('Scope', 'local'),
-                'internal': network_data.get('Internal', False),
-                'external': network_data.get('External', False),
-                'attachable': network_data.get('Attachable', False),
-                'created': network_data.get('Created', 'unknown'),
-                'subnet': subnet,
-                'containers': containers_in_network,
-                'labels': network_data.get('Labels', {})
-            })
+        all_networks = []
+        hosts_status = host_manager.get_hosts_status()
         
-        logger.debug(f"Returning {len(networks)} networks")
-        return jsonify(networks)
+        for host_name, status_info in hosts_status.items():
+            if status_info['connected']:
+                client = host_manager.get_client(host_name)
+                if client:
+                    try:
+                        for network in client.networks.list():
+                            network_data = network.attrs
+                            
+                            # Get containers in this network
+                            containers_in_network = []
+                            for container_id, container_info in network_data.get('Containers', {}).items():
+                                containers_in_network.append(container_info.get('Name', 'unknown'))
+                            
+                            # Get subnet if available
+                            ipam_config = network_data.get('IPAM', {}).get('Config', [])
+                            subnet = ipam_config[0].get('Subnet', 'N/A') if ipam_config else 'N/A'
+                            
+                            all_networks.append({
+                                'id': network.short_id,
+                                'name': network.name,
+                                'driver': network_data.get('Driver', 'unknown'),
+                                'scope': network_data.get('Scope', 'local'),
+                                'internal': network_data.get('Internal', False),
+                                'external': network_data.get('External', False),
+                                'attachable': network_data.get('Attachable', False),
+                                'created': network_data.get('Created', 'unknown'),
+                                'subnet': subnet,
+                                'containers': containers_in_network,
+                                'labels': network_data.get('Labels', {}),
+                                'host': host_name,
+                                'host_display': status_info.get('name', host_name)
+                            })
+                    except Exception as e:
+                        logger.error(f"Failed to get networks from host {host_name}: {e}")
+        
+        logger.debug(f"Returning {len(all_networks)} networks from all hosts")
+        return jsonify(all_networks)
     
     except Exception as e:
-        logger.error(f"Failed to list networks: {e}", exc_info=True)
+        logger.error(f"Failed to list networks from all hosts: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': f'Failed to list networks: {str(e)}'})
     
 @app.route('/api/networks/<id>/inspect')
 def inspect_network(id):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    
     try:
+        host = request.args.get('host', 'local')
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         network = client.networks.get(id)
         return jsonify({
             'status': 'success',
             'data': network.attrs
         })
     except Exception as e:
-        logger.error(f"Failed to inspect network {id}: {e}")
+        logger.error(f"Failed to inspect network {id} on {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
 @app.route('/api/networks/<id>/remove', methods=['POST'])
 def remove_network(id):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    
     try:
+        data = request.json or {}
+        host = data.get('host', 'local')
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         network = client.networks.get(id)
         network.remove()
         return jsonify({
             'status': 'success',
-            'message': f'Network {network.name} removed successfully'
+            'message': f'Network {network.name} removed successfully from {host}'
         })
     except Exception as e:
-        logger.error(f"Failed to remove network {id}: {e}")
+        logger.error(f"Failed to remove network {id} from {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
 @app.route('/api/networks/create', methods=['POST'])
 def create_network():
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    
     try:
         data = request.json
+        host = data.get('host', 'local')
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         if not data or 'name' not in data:
             return jsonify({'status': 'error', 'message': 'Network name required'})
         
@@ -3159,27 +3194,95 @@ def create_network():
         
         return jsonify({
             'status': 'success',
-            'message': f'Network {data["name"]} created successfully',
+            'message': f'Network {data["name"]} created successfully on {host}',
             'network': network.attrs
         })
     except Exception as e:
-        logger.error(f"Failed to create network: {e}")
+        logger.error(f"Failed to create network on {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
-
-@app.route('/api/networks/prune', methods=['POST'])
-def prune_networks():
+@app.route('/api/compose/stop', methods=['POST'])
+def stop_compose():
+    """Stop compose services"""
     if client is None:
         return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    
     try:
+        data = request.json
+        if not data or 'file' not in data:
+            return jsonify({'status': 'error', 'message': 'Invalid request data'})
+        
+        compose_file = data['file']
+        
+        logger.info(f"Stopping compose services for file {compose_file}")
+        
+        # Resolve the compose file path
+        full_path = resolve_compose_file_path(compose_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if not full_path or not os.path.exists(full_path):
+            logger.error(f"Compose file not found: {compose_file}, resolved: {full_path}")
+            return jsonify({'status': 'error', 'message': f'Compose file {compose_file} not found'})
+        
+        # Get the directory containing the compose file
+        compose_dir = os.path.dirname(full_path)
+        compose_filename = os.path.basename(full_path)
+        
+        # Use subprocess to run docker-compose down
+        import subprocess
+        
+        # Environment setup
+        env = os.environ.copy()
+        
+        # Check if the compose file has a "name:" property
+        with open(full_path, 'r') as f:
+            import yaml
+            compose_data = yaml.safe_load(f)
+            project_name = compose_data.get('name', os.path.basename(compose_dir))
+        
+        env["COMPOSE_PROJECT_NAME"] = project_name
+        logger.info(f"Using project name: {project_name}")
+        
+        # Stop the containers
+        logger.info("Stopping containers...")
+        try:
+            result = subprocess.run(
+                ["docker-compose", "-f", compose_filename, "down"],
+                check=True,
+                cwd=compose_dir,
+                env=env,
+                text=True,
+                capture_output=True
+            )
+            logger.info(f"Down completed: {result.stdout}")
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Successfully stopped containers for {project_name}'
+            })
+            
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Down failed: {e.stderr}")
+            return jsonify({'status': 'error', 'message': f'Failed to stop containers: {e.stderr}'})
+        
+    except Exception as e:
+        logger.error(f"Failed to stop compose file: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)})
+@app.route('/api/networks/prune', methods=['POST'])
+def prune_networks():
+    try:
+        data = request.json or {}
+        host = data.get('host', 'local')
+        client = host_manager.get_client(host)
+        if not client:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+        
         result = client.networks.prune()
         return jsonify({
             'status': 'success',
-            'message': f'Pruned {len(result.get("NetworksDeleted", []))} networks'
+            'message': f'Pruned {len(result.get("NetworksDeleted", []))} networks on {host}'
         })
     except Exception as e:
-        logger.error(f"Failed to prune networks: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})    
+        logger.error(f"Failed to prune networks on {host}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
 def perform_batch_action(action, container_ids):
     """Perform an action on multiple containers, using Docker Compose when possible"""
     results = {

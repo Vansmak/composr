@@ -1,51 +1,10 @@
 // Table-specific functions for container management
 
-// Ensure table structure exists
-function ensureTableStructure() {
-    const tableView = document.getElementById('table-view');
-    let containerTable = document.getElementById('container-table');
-    
-    if (!containerTable) {
-        console.log('Creating container table structure');
-        containerTable = document.createElement('table');
-        containerTable.id = 'container-table';
-        
-        const thead = document.createElement('thead');
-        const headerRow = document.createElement('tr');
-        headerRow.id = 'table-headers-row';
-        
-        const tbody = document.createElement('tbody');
-        tbody.id = 'table-body';
-        
-        thead.appendChild(headerRow);
-        containerTable.appendChild(thead);
-        containerTable.appendChild(tbody);
-        tableView.appendChild(containerTable);
-    }
-    
-    // Ensure table body exists
-    let tableBody = document.getElementById('table-body');
-    if (!tableBody) {
-        tableBody = document.createElement('tbody');
-        tableBody.id = 'table-body';
-        containerTable.appendChild(tableBody);
-    }
-    
-    // Force table to be visible and properly styled
-    containerTable.style.width = '100%';
-    containerTable.style.borderCollapse = 'collapse';
-    containerTable.style.display = 'table';
-    tableView.style.display = 'block';
-    
-    console.log('Table structure ensured');
-}
-
-// Update table headers
 function updateTableHeaders() {
     const headersRow = document.getElementById('table-headers-row');
     if (headersRow) {
         headersRow.innerHTML = `
-            <th><input type="checkbox" id="select-all" style="margin: 0;"></th>
+            <th style="width: 30px; text-align: center;"><input type="checkbox" id="select-all" style="margin: 0;"></th>
             <th onclick="sortTable('name')">Name</th>
             <th>Stack</th>
             <th onclick="sortTable('status')">Status</th>
@@ -53,6 +12,7 @@ function updateTableHeaders() {
             <th>Ports</th>
             <th>Host</th>
             <th>Actions</th>
+
         `;
         
         // Re-add select all functionality
@@ -70,6 +30,50 @@ function updateTableHeaders() {
             });
         }
     }
+}
+
+// Also update ensureTableStructure to set table layout
+function ensureTableStructure() {
+    const tableView = document.getElementById('table-view');
+    let containerTable = document.getElementById('container-table');
+    
+    if (!containerTable) {
+        console.log('Creating container table structure');
+        containerTable = document.createElement('table');
+        containerTable.id = 'container-table';
+        containerTable.style.tableLayout = 'auto';
+        //containerTable.style.width = '100%';
+        
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        headerRow.id = 'table-headers-row';
+        
+        const tbody = document.createElement('tbody');
+        tbody.id = 'table-body';
+        
+        thead.appendChild(headerRow);
+        containerTable.appendChild(thead);
+        containerTable.appendChild(tbody);
+        tableView.appendChild(containerTable);
+    } else {
+        // Ensure existing table has proper layout
+        containerTable.style.tableLayout = 'auto';
+        //containerTable.style.width = '100%';
+    }
+    
+    // Ensure table body exists
+    let tableBody = document.getElementById('table-body');
+    if (!tableBody) {
+        tableBody = document.createElement('tbody');
+        tableBody.id = 'table-body';
+        containerTable.appendChild(tableBody);
+    }
+    
+    // Force table to be visible and properly styled
+    containerTable.style.display = 'table';
+    tableView.style.display = 'block';
+    
+    console.log('Table structure ensured with fixed layout');
 }
 
 // Main table rendering function

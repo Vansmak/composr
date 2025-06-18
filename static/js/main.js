@@ -764,6 +764,7 @@ function filterByTag(tag) {
     refreshContainers();
 }
 
+
 function renderContainers(containers) {
     // Cache container data for view switching
     window.lastContainerData = containers;
@@ -964,7 +965,8 @@ function loadSystemStatsMultiHost() {
                 const runningContainers = document.getElementById('running-containers');
                 const cpuCountGrid = document.getElementById('cpu-count-grid');
                 const memoryTotalGrid = document.getElementById('memory-total-grid');
-                
+                const connectedHostsGrid = document.getElementById('connected-hosts-grid');
+                const connectedHosts = document.getElementById('connected-hosts');
                 const totalContainers = document.getElementById('total-containers');
                 const cpuCount = document.getElementById('cpu-count');
                 const memoryTotal = document.getElementById('memory-total');
@@ -973,7 +975,8 @@ function loadSystemStatsMultiHost() {
                 if (runningContainers) runningContainers.textContent = data.totals.total_running || '--';
                 if (cpuCountGrid) cpuCountGrid.textContent = data.totals.total_cpu_cores || '--';
                 if (memoryTotalGrid) memoryTotalGrid.textContent = `${data.totals.total_memory_gb || '--'} GB`;
-                
+                if (connectedHostsGrid) connectedHostsGrid.textContent = data.totals.connected_hosts || '--';
+                if (connectedHosts) connectedHosts.textContent = data.totals.connected_hosts || '--';
                 if (totalContainers) totalContainers.textContent = data.totals.total_containers || '--';
                 if (cpuCount) cpuCount.textContent = data.totals.total_cpu_cores || '--';
                 if (memoryTotal) memoryTotal.textContent = `${data.totals.total_memory_gb || '--'} GB`;
@@ -2538,6 +2541,362 @@ function updateStackFilterOptions(stacks) {
     }
 }
 
+function showStackDetailsModal(stackName, composeFile, hostName = 'local') {
+    const modal = document.createElement('div');
+    modal.className = 'logs-modal';
+    modal.innerHTML = `
+        <div class="modal-header">
+            <h3>${stackName} Stack Details <span class="host-badge-small">${hostName}</span></h3>
+            <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
+        </div>
+        <div class="modal-content" style="padding: 1rem;">
+            <div class="stack-details-content">
+                <p>Loading stack resources...</p>
+            </div>
+            <div class="stack-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                ${composeFile ? `
+                    <button class="btn btn-primary" onclick="document.querySelectorAll('.logs-modal').forEach(m => m.remove()); openComposeInEditor('${composeFile}')">
+                        Edit Compose File
+                    </button>
+                    <button class="btn btn-success" onclick="composeActionWithHost('restart', '${composeFile}', '${hostName}')">
+                        Restart
+                    </button>
+                    <button class="btn btn-error" onclick="composeActionWithHost('down', '${composeFile}', '${hostName}')">
+                        Stop
+                    </button>
+                ` : ''}
+                <button class="btn btn-error" onclick="this.closest('.logs-modal').remove()">Close</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    // Load stack resources with host context
+    getStackResources(stackName, hostName)
+        .then(resources => {
+            const detailsContent = modal.querySelector('.stack-details-content');
+            
+            // Group mounts by type
+            const bindMounts = resources.mounts.filter(m => m.type === 'bind');
+            const volumeMounts = resources.mounts.filter(m => m.type === 'volume');
+            
+            detailsContent.innerHTML = `
+                <div class="stack-resources" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                    <div class="resource-section">
+                        <h4>Mounts (${resources.mounts.length})</h4>
+                        <div style="max-height: 200px; overflow-y: auto;">
+                            ${bindMounts.length > 0 ? `
+                                <h5 style="margin: 0.5rem 0; font-size: 0.9rem;">Bind Mounts</h5>
+                                <ul style="list-style: none; padding: 0; margin: 0 0 1rem 0;">
+                                    ${bindMounts.map(m => `
+                                        <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
+                                            <div style="font-weight: 500;">${m.container}</div>
+                                            <div style="margin-left: 1rem; font-size: 0.8rem;">
+                                                ${m.source} → ${m.destination} (${m.mode})
+                                            </div>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            ` : ''}
+                            
+                            ${volumeMounts.length > 0 ? `
+                                <h5 style="margin: 0.5rem 0; font-size: 0.9rem;">Volume Mounts</h5>
+                                <ul style="list-style: none; padding: 0; margin: 0;">
+                                    ${volumeMounts.map(m => `
+                                        <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
+                                            <div style="font-weight: 500;">${m.container}</div>
+                                            <div style="margin-left: 1rem; font-size: 0.8rem;">
+                                                ${m.source} → ${m.destination} (${m.mode})
+                                            </div>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            ` : ''}
+                            
+                            ${resources.mounts.length === 0 ? 
+                                '<p style="font-style: italic; color: var(--text-secondary);">No mounts</p>' : 
+                            ''}
+                        </div>
+                    </div>
+                    <div class="resource-section">
+                        <h4>Networks (${resources.networks.length})</h4>
+                        <ul style="list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto;">
+                            ${resources.networks.length > 0
+                                ? resources.networks.map(n => `
+                                    <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
+                                        ${n.name}
+                                        ${n.external ? `<span style="color: var(--accent-warning)"> • external</span>` : ''}
+                                    </li>
+                                `).join('')
+                                : '<li style="font-style: italic; color: var(--text-secondary);">No custom networks</li>'
+                            }
+                        </ul>
+                    </div>
+                </div>
+                
+                ${resources.envFile || resources.images.length > 0 ? `
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                        ${resources.envFile ? `
+                            <div style="margin-bottom: 1rem;">
+                                <h4>Environment Configuration</h4>
+                                <p style="color: var(--text-secondary); font-size: 0.85rem;">
+                                    .env file: ${resources.envFile}
+                                    <button class="btn btn-primary btn-sm" style="margin-left: 1rem;" onclick="document.querySelectorAll('.logs-modal').forEach(m => m.remove()); openEnvInEditor('${resources.envFile}')">
+                                        Edit .env
+                                    </button>
+                                </p>
+                            </div>
+                        ` : ''}
+                        
+                        ${resources.images.length > 0 ? `
+                            <div>
+                                <h4>Images (${resources.images.length})</h4>
+                                <ul style="list-style: none; padding: 0; margin: 0; max-height: 150px; overflow-y: auto;">
+                                    ${resources.images.map(img => `
+                                        <li style="padding: 0.25rem 0; color: var(--text-secondary); font-size: 0.85rem;">
+                                            ${img.name} 
+                                            <span style="color: var(--text-secondary);">• ${img.size} MB</span>
+                                            <span style="color: var(--text-secondary);">• ${img.created}</span>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+                    </div>
+                ` : ''}
+            `;
+        })
+        .catch(error => {
+            console.error('Failed to load stack resources:', error);
+            const detailsContent = modal.querySelector('.stack-details-content');
+            detailsContent.innerHTML = `
+                <p style="color: var(--accent-error);">Failed to load stack resources</p>
+                <p style="color: var(--text-secondary); font-size: 0.85rem;">${error.message || 'Unknown error'}</p>
+            `;
+        });
+}
+
+// 2. Add new compose action function that handles host
+function composeActionWithHost(action, file, host = 'local') {
+    if (!file) {
+        showMessage('error', 'No compose file specified');
+        return;
+    }
+    
+    console.log(`Executing compose ${action} on ${file} for host ${host}`);
+    
+    // Confirm remote deployment
+    if (host !== 'local') {
+        if (!confirm(`Execute ${action} on ${host}?\n\nFile: ${file}`)) {
+            return;
+        }
+    }
+    
+    // Close any open modals
+    document.querySelectorAll('.logs-modal').forEach(modal => modal.remove());
+    
+    setLoading(true, `${action}ing stack on ${host}...`);
+    
+    if (host !== 'local') {
+        // Use multi-host endpoint
+        fetch('/api/compose/deploy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                file: file,
+                host: host,
+                action: action === 'restart' ? 'up' : action,
+                pull: action === 'restart'
+            })
+        })
+        .then(response => response.json())
+        .then(result => {
+            setLoading(false);
+            if (result.status === 'success') {
+                showMessage('success', `Stack ${action}ed successfully on ${host}`);
+                if (typeof refreshContainers === 'function') {
+                    refreshContainers();
+                }
+            } else {
+                showMessage('error', `${action} failed on ${host}: ${result.message}`);
+            }
+        })
+        .catch(error => {
+            setLoading(false);
+            showMessage('error', `Failed to ${action} stack on ${host}: ${error.message}`);
+        });
+    } else {
+        // Use existing local deployment
+        const endpoint = action === 'down' ? '/api/compose/stop' : '/api/compose/apply';
+        const body = action === 'down' ? 
+            { file: file, action: 'down' } : 
+            { file: file, pull: action === 'restart' };
+            
+        fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+        .then(response => response.json())
+        .then(result => {
+            setLoading(false);
+            if (result.status === 'success') {
+                showMessage('success', `Stack ${action}ed successfully`);
+                if (typeof refreshContainers === 'function') {
+                    refreshContainers();
+                }
+            } else {
+                showMessage('error', `${action} failed: ${result.message}`);
+            }
+        })
+        .catch(error => {
+            setLoading(false);
+            showMessage('error', `Failed to ${action} stack: ${error.message}`);
+        });
+    }
+}
+
+// 3. Fix getStackResources to work with multi-host
+async function getStackResources(stackName, hostName = 'local') {
+    try {
+        console.log(`Getting stack resources for ${stackName} on ${hostName}`);
+        
+        // Build URLs with host parameter for remote hosts
+        const hostParam = hostName !== 'local' ? `?host=${encodeURIComponent(hostName)}` : '';
+        
+        // Get all resources in parallel - with host context
+        const [volumes, networks, containers, images, envFiles] = await Promise.all([
+            fetch(`/api/volumes${hostParam}`).then(r => r.json()).catch(() => []),
+            fetch(`/api/networks${hostParam}`).then(r => r.json()).catch(() => []),
+            fetch(`/api/containers${hostParam}`).then(r => r.json()).catch(() => []),
+            fetch(`/api/images${hostParam}`).then(r => r.json()).catch(() => []),
+            fetch('/api/env/files').then(r => r.json()).catch(() => ({files: []}))
+        ]);
+
+        console.log(`Found ${containers.length} containers for stack analysis`);
+
+        // Filter containers for this stack and host
+        const stackContainers = containers.filter(c => {
+            const containerStack = window.extractStackName(c);
+            const containerHost = c.host || 'local';
+            return containerStack === stackName && containerHost === hostName;
+        });
+
+        console.log(`Filtered to ${stackContainers.length} containers for stack ${stackName} on ${hostName}`);
+
+        // Get mount information - including bind mounts
+        const allMounts = [];
+        const volumeMounts = {};
+        
+        // Fetch detailed container info to get mounts
+        for (const container of stackContainers) {
+            try {
+                const inspectUrl = `/api/container/${container.id}/inspect${hostParam}`;
+                const response = await fetch(inspectUrl);
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.data.Mounts) {
+                    data.data.Mounts.forEach(mount => {
+                        // Add all mounts to our list
+                        allMounts.push({
+                            container: container.name,
+                            type: mount.Type,
+                            source: mount.Source || mount.Name,
+                            destination: mount.Destination,
+                            mode: mount.Mode || 'rw'
+                        });
+                        
+                        // Track volume mounts separately
+                        if (mount.Type === 'volume') {
+                            const volumeName = mount.Name;
+                            if (!volumeMounts[volumeName]) {
+                                volumeMounts[volumeName] = [];
+                            }
+                            volumeMounts[volumeName].push({
+                                container: container.name,
+                                destination: mount.Destination,
+                                mode: mount.Mode || 'rw'
+                            });
+                        }
+                    });
+                }
+            } catch (e) {
+                console.warn(`Failed to get mounts for container ${container.name} on ${hostName}:`, e);
+            }
+        }
+
+        // Filter volumes that belong to this stack
+        const stackVolumes = Array.isArray(volumes) ? volumes.filter(v => {
+            return v.name.startsWith(stackName + '_') || 
+                   (v.labels && v.labels['com.docker.compose.project'] === stackName);
+        }) : [];
+
+        // Filter networks
+        const stackNetworks = Array.isArray(networks) ? networks.filter(n => {
+            if (['bridge', 'host', 'none'].includes(n.name)) return false;
+            return n.name.startsWith(stackName + '_') || 
+                   n.name === stackName + '_default' ||
+                   (n.labels && n.labels['com.docker.compose.project'] === stackName);
+        }) : [];
+
+        // Find .env file
+        const envFile = (envFiles.files || []).find(f => {
+            return f.includes(`/${stackName}/.env`) || 
+                   f.includes(`${stackName}/.env`) ||
+                   f.endsWith(`/${stackName}/.env`);
+        });
+
+        // Get images used by stack
+        const stackImages = [];
+        const imageSet = new Set();
+        
+        if (Array.isArray(images)) {
+            stackContainers.forEach(container => {
+                if (container.image) {
+                    const matchingImage = images.find(img => 
+                        img.tags.includes(container.image) || 
+                        container.image.includes(img.name.split(':')[0])
+                    );
+                    if (matchingImage && !imageSet.has(matchingImage.name)) {
+                        imageSet.add(matchingImage.name);
+                        stackImages.push({
+                            name: matchingImage.name,
+                            size: matchingImage.size,
+                            created: matchingImage.created
+                        });
+                    }
+                }
+            });
+        }
+
+        const result = {
+            volumes: stackVolumes.map(v => ({
+                name: v.name.replace(stackName + '_', ''),
+                driver: v.driver,
+                mountpoint: v.mountpoint,
+                in_use: v.in_use,
+                mounts: volumeMounts[v.name] || []
+            })),
+            mounts: allMounts, // All mounts including bind mounts
+            networks: stackNetworks.map(n => ({
+                name: n.name.replace(stackName + '_', ''),
+                driver: n.driver,
+                external: n.external || false
+            })),
+            envFile: envFile,
+            images: stackImages
+        };
+
+        console.log(`Stack resources result:`, result);
+        return result;
+        
+    } catch (error) {
+        console.error(`Error getting stack resources for ${stackName} on ${hostName}:`, error);
+        throw error;
+    }
+}
+
+// 4. Update renderContainersByStack to pass host information
 function renderContainersByStack(containers) {
     try {
         const list = document.getElementById('containers-list');
@@ -2558,13 +2917,21 @@ function renderContainersByStack(containers) {
         let stackContainers = {};
 
         containers.forEach(container => {
-            const stackName = extractStackName(container);
+            const stackName = window.extractStackName(container);
+            const hostName = container.host || 'local';
+            const stackKey = `${stackName}@${hostName}`; // Include host in grouping
+            
             allStacks.add(stackName);
             
-            if (!stackContainers[stackName]) {
-                stackContainers[stackName] = [];
+            if (!stackContainers[stackKey]) {
+                stackContainers[stackKey] = {
+                    containers: [],
+                    stackName: stackName,
+                    hostName: hostName,
+                    hostDisplay: container.host_display || hostName
+                };
             }
-            stackContainers[stackName].push(container);
+            stackContainers[stackKey].containers.push(container);
             
             if (container.tags && Array.isArray(container.tags)) {
                 container.tags.forEach(tag => allTags.add(tag));
@@ -2572,8 +2939,13 @@ function renderContainersByStack(containers) {
         });
 
         // Render each stack with its containers
-        Object.keys(stackContainers).sort().forEach(async stackName => {
-            const stackGroup = stackContainers[stackName];
+        Object.keys(stackContainers).sort().forEach(stackKey => {
+            const stackData = stackContainers[stackKey];
+            const stackGroup = stackData.containers;
+            const stackName = stackData.stackName;
+            const hostName = stackData.hostName;
+            const hostDisplay = stackData.hostDisplay;
+            
             const stats = {
                 total: stackGroup.length,
                 running: stackGroup.filter(c => c.status === 'running').length,
@@ -2581,30 +2953,28 @@ function renderContainersByStack(containers) {
                 memory: Math.round(stackGroup.reduce((sum, c) => sum + (parseFloat(c.memory_usage) || 0), 0))
             };
             
-            const composeFile = findComposeFileForStack(stackGroup);
+            const composeFile = window.findComposeFileForStack(stackGroup);
 
-            // Create stack header
+            // Create stack header with host information
             const stackHeader = document.createElement('div');
             stackHeader.className = 'stack-header';
             stackHeader.innerHTML = `
-                <h3>${stackName}</h3>
+                <h3>${stackName} <span class="host-badge-small">${hostDisplay}</span></h3>
                 <div class="stack-stats">
                     <span title="Container count">${stats.running}/${stats.total} running</span>
                     <span title="Total CPU usage">CPU: ${stats.cpu}%</span>
                     <span title="Total memory usage">Mem: ${stats.memory} MB</span>
-                    <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); showStackDetailsModal('${stackName}', '${composeFile || ''}')">
+                    <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); showStackDetailsModal('${stackName}', '${composeFile || ''}', '${hostName}')">
                         🐳
                     </button>
                 </div>
             `;
 
-            // Add a proper event listener if compose file exists
+            // Add click event to open compose file if available
             if (composeFile) {
                 stackHeader.style.cursor = 'pointer';
                 stackHeader.title = "Click to open compose file";
-                // Add click event to the header, but not the button
                 stackHeader.addEventListener('click', (e) => {
-                    // Don't trigger if clicking the details button
                     if (!e.target.closest('button')) {
                         openComposeInEditor(composeFile);
                     }
@@ -2616,64 +2986,21 @@ function renderContainersByStack(containers) {
             // Render the containers for this stack
             stackGroup.sort((a, b) => a.name.localeCompare(b.name));
             stackGroup.forEach(container => {
-                renderSingleContainer(container, list, isBatchMode);
+                renderSingleContainer(container, list);
             });
         });
 
         // Update filter options
         updateTagFilterOptions(Array.from(allTags));
         updateStackFilterOptions(Array.from(allStacks));
+        
     } catch (error) {
         console.error('Error rendering containers by stack:', error);
         showMessage('error', 'Failed to render containers by stack');
     }
 }
 
-// Enhanced stack details modal with deployment options
-function showStackDetailsModal(stackName, composeFile) {
-    const modal = document.createElement('div');
-    modal.className = 'logs-modal';
-    modal.innerHTML = `
-        <div class="modal-header">
-            <h3>${stackName} Stack Management</h3>
-            <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
-        </div>
-        <div class="modal-content" style="padding: 1rem;">
-            <div class="stack-details-content">
-                <p>Loading stack resources...</p>
-            </div>
-            <div class="stack-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                ${composeFile ? `
-                    <button class="btn btn-primary" onclick="document.querySelectorAll('.logs-modal').forEach(m => m.remove()); openComposeInEditor('${composeFile}')">
-                        Edit Compose File
-                    </button>
-                    <button class="btn btn-success" onclick="composeAction('restart', '${composeFile}')">
-                        Deploy/Restart
-                    </button>
-                    <button class="btn btn-warning" onclick="deployStackToHost('${composeFile}', 'down')">
-                        Stop Stack
-                    </button>
-                ` : ''}
-                <button class="btn btn-error" onclick="this.closest('.logs-modal').remove()">Close</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    
-    // Load stack resources
-    getStackResources(stackName)
-        .then(resources => {
-            updateStackDetailsContent(modal, resources);
-        })
-        .catch(error => {
-            console.error('Failed to load stack resources:', error);
-            const detailsContent = modal.querySelector('.stack-details-content');
-            detailsContent.innerHTML = `
-                <p style="color: var(--accent-error);">Failed to load stack resources</p>
-                <p style="color: var(--text-secondary); font-size: 0.85rem;">${error.message || 'Unknown error'}</p>
-            `;
-        });
-}
+
 
 // Improved openComposeInEditor function that tries multiple file variants
 function openComposeInEditor(composeFile) {
@@ -3294,6 +3621,33 @@ function saveCaddyFileAndReload() {
         showMessage('error', 'Failed to save and reload Caddyfile');
     });
 }
+window.findComposeFileForStack = function(containers) {
+    if (!containers || containers.length === 0) return null;
+    
+    const stackName = window.extractStackName(containers[0]);
+    
+    // Try to extract compose file directly from container
+    for (const container of containers) {
+        if (container.compose_file) {
+            if (container.compose_file.startsWith('../')) {
+                return container.compose_file;
+            }
+            
+            if (!container.compose_file.includes('/') && stackName) {
+                return `${stackName}/${container.compose_file}`;
+            }
+            
+            return container.compose_file;
+        }
+    }
+    
+    // No compose file found, construct a default path
+    if (stackName) {
+        return `${stackName}/docker-compose.yaml`;
+    }
+    
+    return null;
+};
 // Initialize event listeners
 function initializeEventListeners() {
     // Helper function to safely add event listeners
@@ -3434,6 +3788,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // UI improvements
     updateGroupFilterOptions();
     removeTagFilters();
+
+    
     
     // Set stack as default grouping
     const groupFilter = document.getElementById('group-filter');
@@ -3480,6 +3836,9 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshContainers();
         startStatsUpdater();
     }, 300);
+    setTimeout(() => {
+        loadSystemStatsMultiHost(); // Load stats on page load
+    }, 500);
     
     // Additional safeguard for toggle button
     setTimeout(() => {
@@ -3519,3 +3878,6 @@ window.toggleImageView = toggleImageView;
 window.extractStackName = extractStackName;
 window.findComposeFileForStack = findComposeFileForStack;
 window.createAndDeployProject = createAndDeployProject;
+window.getStackResources = getStackResources;
+window.showStackDetailsModal = showStackDetailsModal;
+window.composeActionWithHost = composeActionWithHost;
