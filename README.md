@@ -63,6 +63,9 @@ A web-based interface for managing Docker containers and docker-compose configur
 - Desktop/mobile filter layout optimization
 - **Host Badges**: Visual indicators showing which host each container belongs to
 
+**🔄 Scheduled Repulls** *(Experimental)* see below
+**🤖 Auto-Safe Updates** *(Experimental)* see below
+
 ## Multi-Host Setup
 
 ### Enabling Docker Remote API
