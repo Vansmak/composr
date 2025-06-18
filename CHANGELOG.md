@@ -1,6 +1,93 @@
 # Changelog
 All notable changes to Composr will be documented in this file.
 
+## [1.7.2] - 2025-06-18
+### Fixed
+- **UI Consistency**: Fixed button alignment and spacing issues across all themes
+- **Mobile Layout**: Improved container card layouts on mobile devices
+- **Theme Switching**: Resolved dark mode toggle inconsistencies in navigation
+- **Table Responsiveness**: Fixed column alignment issues in container table view
+- **Modal Positioning**: Improved modal centering and backdrop behavior
+- **Typography**: Standardized font sizes and weights across interface elements
+
+### Changed
+- **Visual Polish**: Enhanced visual consistency with refined spacing and borders
+- **Loading States**: Improved loading indicators and transitions
+- **Color Scheme**: Fine-tuned color contrasts for better accessibility
+- **Icon Consistency**: Standardized icon usage throughout the interface
+
+## [1.7.1] - 2025-06-15
+### Added
+- **🔄 Automatic Container Update System**: Complete container update management
+  - Smart version detection with semantic versioning support
+  - Docker Hub API integration for latest version checking
+  - Auto-safe updates for patch versions only (e.g., 1.2.3 → 1.2.4)
+  - Scheduled repulls for latest/stable tags
+  - Configurable update intervals and exclusion patterns
+  - Automatic backup creation before updates
+  - Rollback support for failed updates
+- **Update Management Interface**: Dedicated update settings and control panel
+  - Batch update operations across multiple containers
+  - Individual container update with version selection
+  - Update preview and dry-run capabilities
+  - Comprehensive exclusion system (tags, images, containers)
+- **Multi-Host Update Support**: Update management across all connected Docker hosts
+  - Host-aware update routing and status tracking
+  - Unified update interface for all hosts
+  - Per-host update statistics and monitoring
+
+### Changed
+- **Enhanced Container Monitoring**: Improved container status detection for updates
+- **API Extensions**: New endpoints for update checking and management
+- **Performance Optimization**: Reduced API calls through intelligent caching
+
+### Security
+- **Update Safety**: Multiple safety layers to prevent accidental breaking changes
+- **Backup Integration**: Automatic backups before any update operations
+- **Permission Validation**: Enhanced Docker permission checking for update operations
+
+⚠️ **Note**: Container update system is experimental. Test thoroughly before using in production.
+
+## [1.7.0] - 2025-06-10
+### Added
+- **🌐 Multi-Host Docker Management**: Complete multi-host support
+  - Centralized control of multiple Docker hosts from single interface
+  - Remote Docker host connections via TCP (e.g., tcp://192.168.1.100:2375)
+  - Cross-host container deployment and management
+  - Unified container view with host badges and filtering
+  - Per-host system statistics and monitoring
+  - Host connection status tracking and management
+- **Host Management Interface**: Dedicated hosts configuration panel
+  - Add/remove Docker hosts with connection testing
+  - Host discovery and automatic configuration
+  - Real-time connection status monitoring
+  - Individual host details and Docker version info
+- **Cross-Host Operations**: All container operations work across hosts
+  - Start/stop/restart containers on any connected host
+  - View logs and execute commands in remote containers
+  - Deploy compose projects to specific hosts
+  - Batch operations across multiple hosts simultaneously
+- **Enhanced Project Creation**: Multi-host deployment support
+  - Choose target host during project creation
+  - Cross-host project deployment validation
+  - Host-specific deployment feedback and error handling
+
+### Changed
+- **Container Interface**: Added host identification badges to all containers
+- **Filtering System**: Enhanced filtering with host-based grouping options
+- **Navigation**: Updated interface to accommodate multi-host features
+- **API Architecture**: Redesigned API to support multiple Docker connections
+
+### Technical
+- **Connection Management**: Robust Docker connection handling and failover
+- **Error Handling**: Improved error reporting for multi-host operations
+- **Performance**: Optimized multi-host data fetching and caching
+- **Security**: Enhanced validation for remote Docker connections
+
+### Migration
+- **Backward Compatibility**: Existing single-host setups continue to work unchanged
+- **Configuration**: Optional DOCKER_HOSTS environment variable for multi-host setup
+- **Data Migration**: Automatic migration of existing container metadata
 ## [1.6.1] - 2025-06-01
 Changed
 
