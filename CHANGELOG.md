@@ -2,8 +2,8 @@
 All notable changes to Composr will be documented in this file.
 ## [1.7.6] - 2025-06-20
 - **Fixed critical bug where container labels were lost during backup/restore**
-- **All original container labels (watchtower, traefik, custom, etc.) are now preserved**
-
+- **All original container labels (watchtower, traefik, custom, etc.) are now 
+- **changed default updates logic to include verion #
 ## [1.7.5] - 2025-06-20
 - **Fixed critical bug where Docker hosts were not persisting across container restarts**
 - **Fixed HostManager to properly use METADATA_DIR environment variable**

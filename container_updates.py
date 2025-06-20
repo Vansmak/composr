@@ -23,7 +23,6 @@ class ContainerUpdateManager:
         self.update_cache_file = os.path.join(metadata_dir, 'container_updates_cache.json')
         self.update_settings_file = os.path.join(metadata_dir, 'container_update_settings.json')
         
-        # Default update settings
         self.default_settings = {
             'auto_check_enabled': True,
             'check_interval_hours': 6,
@@ -31,7 +30,7 @@ class ContainerUpdateManager:
             'auto_update_enabled': False,  # Safer default
             'auto_update_schedule': 'manual',  # manual, daily, weekly
             'exclude_patterns': ['latest', 'dev', 'test'],  # Skip these tags
-            'include_patterns': ['stable', 'main', 'prod'],  # Prioritize these
+            'include_patterns': ['stable', 'main', 'prod', r'^\d+\.\d+\.\d+$'],  # Add version regex
             'backup_before_update': True,
             'rollback_on_failure': True,
             'max_concurrent_updates': 3
@@ -275,13 +274,13 @@ class ContainerUpdateManager:
         
         # Check exclude patterns
         for pattern in self.settings['exclude_patterns']:
-            if pattern in tag:
+            if re.search(pattern, tag):  # Changed from: if pattern in tag
                 return True
         
         # If include patterns are specified, only include matching ones
         if self.settings['include_patterns']:
             for pattern in self.settings['include_patterns']:
-                if pattern in tag:
+                if re.search(pattern, tag):  # Changed from: if pattern in tag
                     return False
             return True  # Skip if doesn't match any include pattern
         
