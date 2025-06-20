@@ -3,6 +3,7 @@ All notable changes to Composr will be documented in this file.
 ## [1.7.4] - 2025-06-20
 - **removed cached host from image build
 - **removed instance selector -deprecated
+- **increased editor window size
 ## [1.7.2] - 2025-06-18
 ### Fixed
 - **UI Consistency**: Fixed button alignment and spacing issues across all themes
