@@ -9,10 +9,13 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 class HostManager:
-    def __init__(self, metadata_dir='/app'):
-        self.clients = {}  # {host_name: docker_client}
-        self.host_configs = {}  # {host_name: config}
-        self.connection_status = {}  # {host_name: bool}
+    def __init__(self, metadata_dir=None):  
+        if metadata_dir is None:
+            metadata_dir = os.environ.get('METADATA_DIR', '/app/data') 
+            
+        self.clients = {}
+        self.host_configs = {}
+        self.connection_status = {}
         self.last_health_check = {}
         self.current_host = 'local'
         self.metadata_dir = metadata_dir
