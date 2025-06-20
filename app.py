@@ -27,7 +27,7 @@ from functions import (
 from remote_hosts import host_manager
 
 # Add after imports
-__version__ = "1.7.5"
+__version__ = "1.7.6"
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -401,14 +401,19 @@ def generate_backup_compose(containers, backup_info):
             if not service_name:
                 continue
             
+            # Preserve original labels and add backup labels
+            original_labels = container.get('labels', {})
+            labels_list = [f"{key}={value}" for key, value in original_labels.items()]
+            labels_list.extend([
+                f"composr.backup.original-name={container.get('name', service_name)}",
+                f"composr.backup.status={container.get('status', 'unknown')}",
+                f"composr.backup.created={backup_info.get('created', '')}",
+            ])
+
             service_config = {
                 'image': container.get('image', 'unknown'),
                 'container_name': container.get('name', service_name),
-                'labels': [
-                    f"composr.backup.original-name={container.get('name', service_name)}",
-                    f"composr.backup.status={container.get('status', 'unknown')}",
-                    f"composr.backup.created={backup_info.get('created', '')}",
-                ]
+                'labels': labels_list
             }
             
             # Add container metadata as labels
