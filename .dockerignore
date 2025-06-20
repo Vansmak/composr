@@ -1,23 +1,25 @@
 # Development/test files
-
-
 htmlcov/
-
 *~
-*.sh
 
-
-
-# Container metadata (if you don't want it in image)
+# Personal configuration files that shouldn't be in the image
 container_metadata.json
+container_updates_cache.json
+docker_hosts.json
+composr_hosts.json
 composr.log
 metadata/
+data/
+logs/
+*.log
+
+# Runtime files
+app.log
+debug.log
 
 # Version control
 .git
 .gitignore
-README.md
-*.md
 
 # Python
 __pycache__
@@ -36,7 +38,6 @@ nosetests.xml
 coverage.xml
 *.cover
 *.log
-.git
 .mypy_cache
 .pytest_cache
 .hypothesis
@@ -55,7 +56,6 @@ Thumbs.db
 .idea
 *.swp
 *.swo
-*~
 
 # Node (if you have any frontend build tools)
 node_modules
@@ -81,7 +81,7 @@ test_*
 .env.local
 .env.development
 
-# Documentation
-docs/
-*.md
-LICENSE
+# Build/release scripts (not needed in container)
+release.sh
+test-release.sh
+build.sh

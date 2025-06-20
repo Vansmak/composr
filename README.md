@@ -6,6 +6,8 @@
 
 A web-based interface for managing Docker containers and docker-compose configurations across multiple Docker hosts with powerful project creation and backup capabilities.
 
+Created using AI - use at your own ris.
+
 ## Key Features
 
 ### Multi-Host Docker Management 🆕
