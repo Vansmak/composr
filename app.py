@@ -2737,7 +2737,7 @@ def remove_image(id):
     try:
         data = request.json or {}
         host = data.get('host', 'local')
-        force = request.args.get('force', 'false').lower() == 'true'
+        force = data.get('force', True)
         
         # Get the appropriate client for this host
         host_client = host_manager.get_client(host)
@@ -2778,7 +2778,7 @@ def remove_unused_images():
     try:
         data = request.json or {}
         host = data.get('host', 'local')
-        force = request.args.get('force', 'false').lower() == 'true'
+        force = data.get('force', True)
         
         # Get the appropriate client for this host
         host_client = host_manager.get_client(host)

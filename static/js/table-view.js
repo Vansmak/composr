@@ -1,33 +1,40 @@
 // Table-specific functions for container management
 
 function updateTableHeaders() {
-    const headersRow = document.getElementById('table-headers-row');
-    if (headersRow) {
-        headersRow.innerHTML = `
-            <th style="width: 30px; text-align: center;"><input type="checkbox" id="select-all" style="margin: 0;"></th>
-            <th onclick="sortTable('name')">Name</th>
-            <th>Stack</th>
-            <th onclick="sortTable('status')">Status</th>
-            <th onclick="sortTable('uptime')">Uptime</th>
-            <th>Ports</th>
-            <th>Host</th>
-            <th>Actions</th>
-        `;
-        
-        // Re-add select all functionality
-        const selectAllCheckbox = document.getElementById('select-all');
-        if (selectAllCheckbox) {
-            selectAllCheckbox.addEventListener('change', (e) => {
-                const checkboxes = document.querySelectorAll('.batch-checkbox');
-                checkboxes.forEach(checkbox => {
-                    checkbox.checked = e.target.checked;
-                    const row = checkbox.closest('tr');
-                    if (row) {
-                        row.classList.toggle('selected', e.target.checked);
-                    }
-                });
+    const thead = document.querySelector('#container-table thead');
+    let headersRow = document.getElementById('table-headers-row');
+    
+    // Create headers row if it doesn't exist
+    if (!headersRow) {
+        headersRow = document.createElement('tr');
+        headersRow.id = 'table-headers-row';
+        thead.appendChild(headersRow);
+    }
+    
+    headersRow.innerHTML = `
+        <th style="width: 30px; text-align: center;"><input type="checkbox" id="select-all" style="margin: 0;"></th>
+        <th onclick="sortTable('name')">Name</th>
+        <th>Stack</th>
+        <th onclick="sortTable('status')">Status</th>
+        <th onclick="sortTable('uptime')">Uptime</th>
+        <th>Ports</th>
+        <th>Host</th>
+        <th>Actions</th>
+    `;
+    
+    // Re-add select all functionality
+    const selectAllCheckbox = document.getElementById('select-all');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', (e) => {
+            const checkboxes = document.querySelectorAll('.batch-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = e.target.checked;
+                const row = checkbox.closest('tr');
+                if (row) {
+                    row.classList.toggle('selected', e.target.checked);
+                }
             });
-        }
+        });
     }
 }
 

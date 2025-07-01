@@ -429,16 +429,7 @@
                         <tr id="table-controls-row" class="table-controls-row">
                             <!-- Controls will be moved here dynamically -->
                         </tr>
-                        <tr id="table-headers-row">
-                            <th><input type="checkbox" id="select-all"></th>
-                            <th onclick="sortTable('name')">Name</th>
-                            <th>Stack</th>
-                            <th onclick="sortTable('status')">Status</th>
-                            <th onclick="sortTable('uptime')">Uptime</th>
-                            <th>Ports</th>
-                            <th onclick="sortTable('host')" id="host-column-header" style="display: none;">Host</th>
-                            <th>Actions</th>
-                        </tr>
+                        <!-- Remove the hardcoded headers row -->
                     </thead>
                     <tbody id="table-body"></tbody>
                 </table>
@@ -698,7 +689,7 @@
                 <div class="image-actions">
                     <button onclick="toggleImageView()" class="btn btn-primary" id="toggle-image-view">≡</button>
                     <button onclick="pruneImages()" class="btn btn-primary">Prune Images</button>
-                    <button onclick="removeUnusedImages()" class="btn btn-error">Remove Unused</button>
+                    
                 </div>
             </div>
             <div id="images-grid-view" class="view active">
