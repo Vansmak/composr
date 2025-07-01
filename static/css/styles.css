@@ -304,14 +304,30 @@ header {
 }
 
 .container-card {
-    min-height: 140px !important;
-    display: flex !important;
-    flex-direction: column !important;
+    background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-secondary) 100%);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    padding: 1rem;
+    min-height: 100px; /* Much shorter */
+    max-height: 100px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
 }
 
+.container-body {
+    flex: 1 !important;
+    justify-content: space-between !important;
+    overflow: hidden !important;  /* ADD THIS to prevent content overflow */
+}
+
+
+
 .container-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
     border-color: var(--accent-primary);
 }
 
@@ -322,26 +338,32 @@ header {
 }
 
 .container-header {
-    align-items: flex-start !important;
-    min-height: 2.5rem !important;
+    display: flex;
+    align-items: center;
+    min-height: auto;
 }
 
+.container-name {
+    font-weight: 600;
+    font-size: 1rem;
+    flex: 1;
+}
+
+/* Row 2: Host, Status, Uptime, More button */
+.container-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
 .container-header-right {
     max-width: 60% !important;
     justify-content: flex-end !important;
     flex-shrink: 0 !important;
 }
 
-.container-name {
-    flex: 1 !important;
-    min-width: 0 !important;
-    line-height: 1.2 !important;
-}
 
-.container-body {
-    flex: 1 !important;
-    justify-content: space-between !important;
-}
+
 
 .container-name:hover {
     color: var(--accent-secondary);
@@ -349,18 +371,27 @@ header {
 }
 
 
+.container-status-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+}
 
-/* === Container Ports === */
+/* Row 3: Ports (single line) */
 .container-ports {
     font-size: 0.8rem;
     color: var(--text-secondary);
     background: var(--bg-tertiary);
-    padding: 0.2rem 0.5rem;
-    border-radius: 0.25rem;
-    margin: 0.3rem 0;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
     font-family: monospace;
-    border: 1px solid var(--border-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0;
 }
+
 
 .container-ports:empty::before {
     content: "No ports";
@@ -452,9 +483,16 @@ header {
 }
 
 /* === Actions === */
+/* Row 4: Actions */
 .actions {
-    margin-top: auto !important;
-    padding-top: 0.5rem !important;
+    display: flex;
+    gap: 0.5rem;
+    margin-top: auto;
+}
+
+.actions .btn {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.8rem;
 }
 
 /* === Buttons === */
@@ -2460,3 +2498,17 @@ select {
     margin-bottom: 0;
     white-space: nowrap;
 }
+.container-card {
+    position: relative;
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+}
+
+.container-actions {
+    margin-top: auto;
+}
+
+.health-healthy { color: #22c55e; }
+.health-warning { color: #f59e0b; }
+.health-error { color: #ef4444; }

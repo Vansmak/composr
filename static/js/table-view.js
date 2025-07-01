@@ -12,7 +12,6 @@ function updateTableHeaders() {
             <th>Ports</th>
             <th>Host</th>
             <th>Actions</th>
-
         `;
         
         // Re-add select all functionality
@@ -280,6 +279,9 @@ function renderSingleContainerAsTableRow(container, tableBody) {
         portsHtml = 'None';
     }
 
+    // ADD THIS: Get health info for table
+    const health = getContainerHealth(container);
+
     const hostDisplay = container.host_display || container.host || 'local';
 
     row.innerHTML = `
@@ -291,7 +293,8 @@ function renderSingleContainerAsTableRow(container, tableBody) {
         </td>
         <td>${window.extractStackName(container)}</td>
         <td>
-            <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
+            <span class="health-${health.level}" title="${health.tooltip}">${container.status}</span>
+            
         </td>
         <td>
             <span class="uptime-badge">${uptimeDisplay}</span>
@@ -317,7 +320,6 @@ function renderSingleContainerAsTableRow(container, tableBody) {
 
     tableBody.appendChild(row);
 }
-
 // Render containers grouped by tag in table format (if needed)
 function renderContainersByTagAsTable(containers) {
     const tableBody = document.getElementById('table-body');

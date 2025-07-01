@@ -307,7 +307,7 @@ function toggleView() {
     }
 }
 
-// 2. REPLACE your existing composeAction function with this:
+
 function composeAction(action, file = null) {
     const composeFile = file || currentComposeFile;
     if (!composeFile) {
@@ -344,17 +344,21 @@ function composeAction(action, file = null) {
         .then(result => {
             setLoading(false);
             if (result.status === 'success') {
-                showMessage('success', `Success on ${selectedHost}`);
+                showPersistentResult('Deploy', result, composeFile.split('/')[0]);
                 if (typeof refreshContainers === 'function') {
                     refreshContainers();
                 }
             } else {
-                showMessage('error', result.message);
+                showPersistentResult('Deploy', result, composeFile.split('/')[0]);
             }
         })
         .catch(error => {
             setLoading(false);
-            showMessage('error', `Failed: ${error.message}`);
+            showPersistentResult('Deploy', {
+                status: 'error',
+                message: 'Network error',
+                error: error.message
+            }, composeFile.split('/')[0]);
         });
     } else {
         // Use existing local deployment
@@ -370,17 +374,21 @@ function composeAction(action, file = null) {
         .then(result => {
             setLoading(false);
             if (result.status === 'success') {
-                showMessage('success', result.message);
+                showPersistentResult('Deploy', result, stackName);
                 if (typeof refreshContainers === 'function') {
                     refreshContainers();
                 }
             } else {
-                showMessage('error', result.message);
+                showPersistentResult('Deploy', result, stackName);
             }
         })
         .catch(error => {
             setLoading(false);
-            showMessage('error', `Failed: ${error.message}`);
+            showPersistentResult('Deploy', {
+                status: 'error',
+                message: 'Network error',
+                error: error.message
+            }, composeFile.split('/')[0]);
         });
     }
 }
@@ -1268,7 +1276,7 @@ function renderSingleContainer(container, parentElement) {
     card.dataset.cpu = container.cpu_percent;
     card.dataset.memory = container.memory_usage;
     const uptimeDisplay = container.uptime && container.uptime.display ? container.uptime.display : 'N/A';
-
+    const health = getContainerHealth(container);
     // CRITICAL FIX: Ensure host is properly passed
     const containerHost = container.host || 'local';
     console.log(`Rendering container ${container.name} with host: ${containerHost}`);
@@ -1295,24 +1303,28 @@ function renderSingleContainer(container, parentElement) {
     card.innerHTML = `
         <div class="container-header">
             <span class="container-name" onclick="openCustomContainerURL('${container.id}', '${containerHost}')" title="${container.name}">${container.name}</span>
-            <div class="container-header-right">
-                <span class="host-badge-small">${hostDisplay}</span>
-                <span class="container-status status-${container.status === 'running' ? 'running' : 'stopped'}">${container.status}</span>
-                <span class="uptime-badge">${uptimeDisplay}</span>
-                <button class="btn btn-primary" onclick="showContainerPopup('${container.id}', '${container.name}', '${containerHost}')">...</button>
-            </div>
         </div>
-        <div class="container-body">
-            ${portsHtml}
-            <div class="actions">
-                <button class="btn btn-success" onclick="containerAction('${container.id}', 'start', '${containerHost}')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
-                <button class="btn btn-error" onclick="containerAction('${container.id}', 'stop', '${containerHost}')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
-                <button class="btn btn-primary" onclick="containerAction('${container.id}', 'restart', '${containerHost}')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
+        
+        <div class="container-meta">
+            <div class="container-status-group">
+                <span class="host-badge-small">${hostDisplay}</span>
+                <span class="health-${health.level}" title="${health.tooltip}">${container.status}</span>
+                <span class="uptime-badge">${uptimeDisplay}</span>
             </div>
+            <button class="btn btn-primary btn-sm" onclick="showContainerPopup('${container.id}', '${container.name}', '${containerHost}')">⋯</button>
+        </div>
+        
+        <div class="container-ports">${portsHtml}</div>
+        
+        <div class="actions">
+            <button class="btn btn-success btn-sm" onclick="containerAction('${container.id}', 'start', '${containerHost}')" ${container.status === 'running' ? 'disabled' : ''}>Start</button>
+            <button class="btn btn-error btn-sm" onclick="containerAction('${container.id}', 'stop', '${containerHost}')" ${container.status !== 'running' ? 'disabled' : ''}>Stop</button>
+            <button class="btn btn-primary btn-sm" onclick="containerAction('${container.id}', 'restart', '${containerHost}')" ${container.status !== 'running' ? 'disabled' : ''}>Restart</button>
         </div>
     `;
 
     parentElement.appendChild(card);
+    
 
     if (isBatchMode) {
         const checkbox = document.createElement('input');
@@ -1410,9 +1422,17 @@ async function refreshContainers(sortKey = null, sortDirection = 'asc') {
         }
 
         const containers = await response.json();
-        
+
+        // Save scroll position before DOM rebuild
+        const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+
         renderContainers(containers);
         loadSystemStatsMultiHost(); // Load unified system stats
+
+        // Restore scroll position after DOM rebuild
+        setTimeout(() => {
+            window.scrollTo(0, scrollY);
+        }, 50);
 
         if (containers.some(c => c.status === 'running')) {
             if (refreshTimer) {
@@ -1444,7 +1464,7 @@ async function containerAction(id, action, host = 'local') {
         
         const result = await response.json();
         if (result.status === 'success') {
-            showMessage('success', `Container ${action}ed successfully on ${host}`);
+            showPersistentResult(`Container ${action}`, result, container.name);
             refreshContainers();
         } else {
             showMessage('error', `${action} failed on ${host}: ${result.message}`);
@@ -1532,18 +1552,22 @@ async function createAndDeployProject() {
                     const deployResult = await deployResponse.json();
                     
                     if (deployResult.status === 'success') {
-                        showMessage('success', `🚀 Project created and deployed to ${deployHost} successfully!`);
+                        showPersistentResult('Create & Deploy', deployResult, projectName);
                         
                         // Refresh containers to show new deployment
                         if (typeof refreshContainers === 'function') {
                             setTimeout(() => refreshContainers(), 2000);
                         }
                     } else {
-                        showMessage('warning', `⚠️ Project created but deployment to ${deployHost} failed: ${deployResult.message}`);
+                        showPersistentResult('Create & Deploy', deployResult, projectName);
                     }
                 } catch (deployError) {
                     console.error('Deploy error:', deployError);
-                    showMessage('warning', `⚠️ Project created but deployment to ${deployHost} failed: ${deployError.message}`);
+                    showPersistentResult('Create & Deploy', {
+                        status: 'error',
+                        message: 'Deployment failed',
+                        error: deployError.message
+                    }, projectName);;
                 }
             } else {
                 // No deployment requested
@@ -1984,13 +2008,17 @@ async function repullContainer(id, host = 'local') {
         });
         const result = await response.json();
         if (result.status === 'success') {
-            showMessage('success', `Container repulled successfully on ${host}`);
+            showPersistentResult('Repull Container', result, `Container on ${host}`);
             refreshContainers();
         } else {
-            showMessage('error', `Repull failed on ${host}: ${result.message}`);
+            showPersistentResult('Repull Container', result, `Container on ${host}`);
         }
     } catch (error) {
-        showMessage('error', `Failed to repull container on ${host}: ${error.message}`);
+        showPersistentResult('Repull Container', {
+            status: 'error',
+            message: 'Network error',
+            error: error.message
+        }, `Container on ${host}`);
     } finally {
         setLoading(false);
     }
@@ -3106,7 +3134,8 @@ function pruneImages() {
         return;
     }
     
-    if (!confirm(`Are you sure you want to prune unused images on ${selectedHost}? This will remove all dangling images that are not referenced by any containers.`)) {
+    // Single confirmation dialog
+    if (!confirm(`Prune unused images on ${selectedHost}?\n\nThis will remove all dangling images that are not referenced by any containers.`)) {
         return;
     }
     
@@ -3142,24 +3171,41 @@ function removeUnusedImages() {
         return;
     }
     
-    if (!confirm(`Are you sure you want to remove all unused images on ${selectedHost}? This will remove images that are not currently used by any containers.`)) {
-        return;
+    // Single comprehensive confirmation dialog
+    const userChoice = confirm(`Remove ALL unused images on ${selectedHost}?\n\n⚠️ WARNING: This will remove ALL images not currently used by any containers.\n\nClick OK to FORCE remove (recommended)\nClick Cancel to abort`);
+    
+    if (!userChoice) {
+        return; // User cancelled
     }
     
-    const forceRemove = confirm('Force removal? This is needed for images used in multiple repositories.\n\nClick OK for force remove, Cancel for safe remove only.');
+    // Always use force=true since that's what actually works
+    const forceRemove = true;
     
     setLoading(true, `Removing unused images on ${selectedHost}...`);
-    fetch(`/api/images/remove_unused?force=${forceRemove}`, {
+    
+    // Fix the API endpoint - remove the query parameter from URL
+    fetch('/api/images/remove_unused', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host: selectedHost })
+        body: JSON.stringify({ 
+            host: selectedHost,
+            force: forceRemove 
+        })
     })
     .then(response => response.json())
     .then(result => {
         setLoading(false);
         if (result.status === 'success') {
-            showMessage('success', result.message || 'Unused images removed successfully');
-            loadImages();
+            const message = result.message || 'Unused images removed successfully';
+            
+            // Show more detailed success message if available
+            if (result.removed_count !== undefined) {
+                showMessage('success', `${message} (${result.removed_count} images removed)`);
+            } else {
+                showMessage('success', message);
+            }
+            
+            loadImages(); // Refresh the images list
         } else {
             showMessage('error', result.message || 'Failed to remove unused images');
         }
@@ -3172,17 +3218,24 @@ function removeUnusedImages() {
 }
 
 function removeImage(id, host = 'local') {
-    if (!confirm(`Are you sure you want to remove this image from ${host}?`)) {
+    // Single confirmation with clear action
+    if (!confirm(`Remove this image from ${host}?\n\nThis action cannot be undone.`)) {
         return;
     }
     
-    const forceRemove = confirm('Force removal? This is needed for images used in multiple repositories.\n\nClick OK for force remove, Cancel for safe remove only.');
+    // Always use force removal since that's what actually works for most cases
+    const forceRemove = true;
     
     setLoading(true, `Removing image from ${host}...`);
-    fetch(`/api/images/${id}/remove?force=${forceRemove}`, {
+    
+    // Fix the API endpoint - remove query parameter from URL
+    fetch(`/api/images/${id}/remove`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host: host })
+        body: JSON.stringify({ 
+            host: host,
+            force: forceRemove 
+        })
     })
     .then(response => response.json())
     .then(result => {
@@ -3621,6 +3674,122 @@ function saveCaddyFileAndReload() {
         showMessage('error', 'Failed to save and reload Caddyfile');
     });
 }
+
+// 1. PERSISTENT OPERATION MESSAGES
+function showPersistentResult(operation, result, stackName = '') {
+    const isSuccess = result.status === 'success';
+    const icon = isSuccess ? '✅' : '❌';
+    const title = `${icon} ${operation}${stackName ? ': ' + stackName : ''}`;
+    
+    const content = `
+        <div style="padding: 20px; max-width: 600px;">
+            <div style="padding: 15px; border-radius: 6px; margin-bottom: 20px; background: ${isSuccess ? 'rgba(40, 167, 69, 0.2)' : 'rgba(220, 53, 69, 0.2)'}; border: 1px solid ${isSuccess ? '#28a745' : '#dc3545'}; color: ${isSuccess ? '#28a745' : '#dc3545'};">
+                <strong>${result.message || (isSuccess ? 'Operation completed successfully' : 'Operation failed')}</strong>
+            </div>
+            
+            ${result.output ? `
+                <div style="margin-bottom: 15px;">
+                    <h4 style="margin: 0 0 10px 0; color: var(--text-secondary);">Command Output:</h4>
+                    <pre style="background: #1a1a1a; border: 1px solid #444; border-radius: 4px; padding: 12px; margin: 0; font-family: monospace; font-size: 12px; color: #fff; white-space: pre-wrap; max-height: 300px; overflow-y: auto;">${result.output}</pre>
+                </div>
+            ` : ''}
+            
+            ${result.error ? `
+                <div style="margin-bottom: 15px;">
+                    <h4 style="margin: 0 0 10px 0; color: var(--text-secondary);">Error Details:</h4>
+                    <pre style="background: #1a1a1a; border: 1px solid #dc3545; border-radius: 4px; padding: 12px; margin: 0; font-family: monospace; font-size: 12px; color: #ff6b6b; white-space: pre-wrap; max-height: 300px; overflow-y: auto;">${result.error}</pre>
+                </div>
+            ` : ''}
+            
+            <div style="text-align: center; margin-top: 20px;">
+                <button onclick="closeModal()" style="padding: 10px 20px; background: var(--accent-color, #007acc); color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">Close</button>
+                ${isSuccess && stackName ? `<button onclick="closeModal(); showTab('compose')" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">📝 Edit Compose</button>` : ''}
+            </div>
+        </div>
+    `;
+    
+    showModal(title, content);
+    
+    // Don't auto-close errors - let user read them
+    if (isSuccess) {
+        setTimeout(() => {
+            if (document.querySelector('.modal')) {
+                closeModal();
+            }
+        }, 10000); // Auto-close success after 10 seconds
+    }
+}
+
+// 2. CONTAINER HEALTH ASSESSMENT
+function getContainerHealth(container) {
+    const issues = [];
+    let healthLevel = 'healthy'; // healthy, warning, error
+    
+    // Check container status
+    if (container.status !== 'running') {
+        issues.push(`Container is ${container.status}`);
+        healthLevel = 'error';
+    }
+    
+    // Check uptime (if container keeps restarting)
+    if (container.uptime && container.uptime.minutes < 5 && container.status === 'running') {
+        issues.push('Recently restarted');
+        if (healthLevel !== 'error') healthLevel = 'warning';
+    }
+    
+    // Check memory usage (if available)
+    if (container.memory_percent && container.memory_percent > 90) {
+        issues.push('High memory usage');
+        if (healthLevel !== 'error') healthLevel = 'warning';
+    }
+    
+    // Check CPU usage (if available)
+    if (container.cpu_percent && container.cpu_percent > 95) {
+        issues.push('High CPU usage');
+        if (healthLevel !== 'error') healthLevel = 'warning';
+    }
+    
+    // Check for old images (basic version detection)
+    if (container.image && container.image.includes(':latest')) {
+        // Could add image age check here in the future
+    }
+    
+    return {
+        level: healthLevel,
+        issues: issues,
+        tooltip: issues.length > 0 ? issues.join(', ') : 'Container healthy'
+    };
+}
+
+// 3. ADD HEALTH INDICATORS TO CONTAINERS
+function addHealthIndicator(container) {
+    const health = getContainerHealth(container);
+    
+    const healthDot = document.createElement('div');
+    healthDot.className = `health-indicator ${health.level}`;
+    healthDot.title = health.tooltip;
+    healthDot.style.cssText = `
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 2px solid var(--bg-primary);
+        z-index: 10;
+    `;
+    
+    // Set color based on health level
+    const colors = {
+        healthy: '#22c55e',
+        warning: '#f59e0b', 
+        error: '#ef4444'
+    };
+    healthDot.style.backgroundColor = colors[health.level];
+    
+    return healthDot;
+}
+
 window.findComposeFileForStack = function(containers) {
     if (!containers || containers.length === 0) return null;
     

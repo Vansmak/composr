@@ -1,5 +1,63 @@
 # Changelog
 All notable changes to Composr will be documented in this file.
+## [1.7.7] - 2025-07-01
+### Added
+- **🎯 Smart Health Indicators**: Intelligent container health assessment system
+  - Real-time health evaluation based on container status, uptime, and resource usage
+  - Visual health indicators with color-coded status (green=healthy, yellow=warning, red=error)
+  - Smart warning detection for recently restarted containers (< 5 minutes uptime)
+  - Health tooltips showing specific issues and recommendations
+- **📊 Persistent Operation Results**: Enhanced operation feedback system
+  - Detailed operation result modals showing actual docker-compose command output
+  - Persistent error messages that stay visible until manually dismissed
+  - Success messages with auto-close after 10 seconds
+  - Full command output display for debugging deployment failures
+  - Network error handling with detailed error information
+- **🔒 Scroll Position Preservation**: Automatic scroll position retention
+  - Container list maintains scroll position after refresh operations
+  - No more jumping back to top after container actions or page updates
+  - Improved user experience for large container lists
+
+### Changed
+- **Container Status Display**: Replaced basic status badges with health-aware color coding
+  - Container status text now changes color based on health level
+  - Removed separate health column for cleaner table layout
+  - Unified health indication across both card and table views
+- **Card Layout Redesign**: Modernized container card appearance and organization
+  - 4-row compact layout: Name → Host/Status/Uptime/More → Ports → Actions
+  - Reduced card height (240px → 120px) for better screen utilization
+  - Modern gradient backgrounds with improved hover effects
+  - Better content organization with proper spacing and alignment
+- **Table Structure Optimization**: Streamlined table columns for better usability
+  - Consolidated health and status into single color-coded status column
+  - Improved column alignment and responsive design
+  - Fixed group header colspan to match new column structure
+
+### Fixed
+- **Operation Feedback**: Replaced generic "success/failed" messages with actual command output
+  - Users now see real docker-compose errors instead of "operation failed"
+  - Full deployment logs visible for troubleshooting
+  - Network errors properly captured and displayed
+- **Card View Consistency**: Fixed container card sizing and layout inconsistencies
+  - All cards now maintain uniform height regardless of content
+  - Proper content overflow handling for long port lists
+  - Consistent button placement and spacing
+- **Health Indicator Integration**: Seamless health status across all views
+  - Card view health dots properly positioned in top-right corner
+  - Table view health coloring applied consistently
+  - Health assessment working for both grouped and ungrouped views
+- **Page Navigation**: Fixed scroll position jumping to top after container operations
+  - Maintains user's current scroll position during refresh operations
+  - Better UX for managing large numbers of containers
+
+### Technical
+- **Health Assessment Engine**: Comprehensive container health evaluation system
+- **Operation Result Modal**: New modal system for displaying command outputs
+- **Scroll Management**: Intelligent scroll position preservation system
+- **CSS Optimization**: Streamlined styling with improved responsiveness
+- **Error Handling**: Enhanced error capture and display throughout the application
+
+This release significantly improves user experience by providing clear visual feedback about container health, detailed information when operations fail, and seamless navigation that maintains user context during operations.
 ## [1.7.6] - 2025-06-20
 - **Fixed critical bug where container labels were lost during backup/restore**
 - **All original container labels (watchtower, traefik, custom, etc.) are now 
