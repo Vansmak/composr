@@ -318,7 +318,7 @@ function composeAction(action, file = null) {
     // Get selected host
     const hostSelect = document.getElementById('compose-host-select');
     const selectedHost = hostSelect ? hostSelect.value : 'local';
-    
+    const stackName = composeFile.split('/')[0];
     // Confirm remote deployment
     if (selectedHost !== 'local') {
         if (!confirm(`Deploy to ${selectedHost}?\n\nAction: ${action}\nFile: ${composeFile}`)) {
@@ -1464,7 +1464,7 @@ async function containerAction(id, action, host = 'local') {
         
         const result = await response.json();
         if (result.status === 'success') {
-            showPersistentResult(`Container ${action}`, result, container.name);
+            showPersistentResult(`Container ${action}`, result, id);
             refreshContainers();
         } else {
             showMessage('error', `${action} failed on ${host}: ${result.message}`);
