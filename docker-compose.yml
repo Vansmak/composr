@@ -4,6 +4,8 @@ services:
   composr:
     build: .
     user: "1000:1000"
+    group_add:
+      - "998" 
     
     ports:
       - "5003:5003"

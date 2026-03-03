@@ -3676,6 +3676,25 @@ function saveCaddyFileAndReload() {
 }
 
 // 1. PERSISTENT OPERATION MESSAGES
+function showModal(title, content) {
+    closeModal();
+    const modal = document.createElement('div');
+    modal.className = 'modal logs-modal';
+    modal.innerHTML = `
+        <div class="modal-header">
+            <h3>${title}</h3>
+            <span class="close-x" onclick="closeModal()">×</span>
+        </div>
+        <div class="modal-body">${content}</div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function closeModal() {
+    const existing = document.querySelector('.modal.logs-modal');
+    if (existing) existing.remove();
+}
+
 function showPersistentResult(operation, result, stackName = '') {
     const isSuccess = result.status === 'success';
     const icon = isSuccess ? '✅' : '❌';
