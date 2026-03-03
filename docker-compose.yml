@@ -21,4 +21,8 @@ services:
       - EXTRA_COMPOSE_DIRS=/home/joe/projects  # Extra directories to scan, my example
       - METADATA_DIR=/app/metadata  # Store settings here
       - CADDY_CONFIG_DIR=/home/joe/config/caddy
+      # Auth - optional. Remove or leave blank to disable login
+      - AUTH_USERNAME=admin
+      - AUTH_PASSWORD=changeme
+      - SECRET_KEY=change_this_to_a_random_string
     restart: unless-stopped

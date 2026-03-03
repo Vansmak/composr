@@ -298,6 +298,10 @@
                 </div>
             </div>
            
+            {% if session.get('logged_in') %}
+            <a href="/logout" style="margin-left:auto; padding: 0.35rem 0.75rem; background: transparent; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-secondary); font-size: 0.8rem; text-decoration: none; white-space: nowrap;" title="Sign out">Sign out</a>
+            {% endif %}
+
             <div id="filter-menu" class="filter-menu">
                 <!-- Mobile filters (duplicates of the ones above, but visible on mobile) -->
                 <select id="stack-filter-mobile" class="filter-select">

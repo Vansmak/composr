@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request, send_file
+from flask import Flask, render_template, jsonify, request, send_file, session, redirect, url_for
 import json
 import logging
 import os
@@ -27,10 +27,44 @@ from functions import (
 from remote_hosts import host_manager
 
 # Add after imports
-__version__ = "1.7.8"
+__version__ = "1.8.0"
 
 # Initialize Flask app
 app = Flask(__name__)
+
+# Auth configuration
+import secrets
+AUTH_USERNAME = os.getenv('AUTH_USERNAME', '')
+AUTH_PASSWORD = os.getenv('AUTH_PASSWORD', '')
+AUTH_ENABLED = bool(AUTH_USERNAME and AUTH_PASSWORD)
+app.secret_key = os.getenv('SECRET_KEY') or secrets.token_hex(32)
+
+@app.before_request
+def require_login():
+    if not AUTH_ENABLED:
+        return
+    if request.endpoint in ('login', 'logout', 'static'):
+        return
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if not AUTH_ENABLED:
+        return redirect(url_for('index'))
+    error = None
+    if request.method == 'POST':
+        if (request.form.get('username') == AUTH_USERNAME and
+                request.form.get('password') == AUTH_PASSWORD):
+            session['logged_in'] = True
+            return redirect(url_for('index'))
+        error = 'Invalid credentials'
+    return render_template('login.html', error=error)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
 # Configuration - MOVED BEFORE LOGGING
 COMPOSE_DIR = os.getenv('COMPOSE_DIR', '/app/projects')
@@ -369,7 +403,7 @@ docker-compose -f backup-compose.yml up -d
                     try:
                         if os.path.exists(zip_path):
                             os.remove(zip_path)
-                    except:
+                    except OSError:
                         pass
                 
                 return response
@@ -1784,7 +1818,7 @@ def validate_compose_content():
             # Clean up temp file
             try:
                 os.unlink(temp_file)
-            except:
+            except OSError:
                 pass
                 
     except Exception as e:
@@ -3537,7 +3571,7 @@ def extract_env_from_content():
             # Make sure to clean up the temp file even if there's an error
             try:
                 os.unlink(temp_file)
-            except:
+            except OSError:
                 pass
             raise e
     except Exception as e:

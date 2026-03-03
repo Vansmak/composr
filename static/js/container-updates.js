@@ -780,18 +780,7 @@ function showContainerUpdateSettings() {
                         Show notifications when updates are found
                     </label>
                 </div>
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="auto-check-enabled" ${settings.auto_check_enabled ? 'checked' : ''}>
-                        Automatically check for container updates
-                    </label>
-                </div>
-                
-                <div class="form-group">
-                    <label for="check-interval-hours">Check interval (hours):</label>
-                    <input type="number" id="check-interval-hours" value="${settings.check_interval_hours || 6}" min="1" max="168">
-                </div>
-                
+
                 <!-- ADD THESE TWO NEW SECTIONS -->
                 <div class="form-group auto-update-section" style="background: var(--bg-secondary); padding: 1rem; border-radius: 0.25rem; margin: 1.5rem 0;">
                     <h4 style="margin: 0 0 1rem 0; color: var(--accent-success);">🤖 Auto-Safe Updates</h4>

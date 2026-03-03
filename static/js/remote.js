@@ -176,7 +176,8 @@ function updateHostsDisplay(hosts, currentHost) {
     
     Object.entries(hosts).forEach(([hostName, hostInfo]) => {
         if (hostName === 'local') return; // Skip local in the list
-        
+        if (!hostInfo) return; // Skip null/undefined host entries
+
         if (hostInfo.connected) {
             connectedHosts.push([hostName, hostInfo]);
         } else {

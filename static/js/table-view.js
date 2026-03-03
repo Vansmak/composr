@@ -287,7 +287,7 @@ function renderSingleContainerAsTableRow(container, tableBody) {
     }
 
     // ADD THIS: Get health info for table
-    const health = getContainerHealth(container);
+    const health = (typeof getContainerHealth === 'function') ? getContainerHealth(container) : { level: 'unknown', tooltip: '' };
 
     const hostDisplay = container.host_display || container.host || 'local';
 

@@ -141,7 +141,7 @@ class HostManager:
             if name in self.clients:
                 try:
                     self.clients[name].close()
-                except:
+                except Exception:
                     pass
                 del self.clients[name]
             
@@ -295,7 +295,7 @@ class HostManager:
                 if host_name in self.clients:
                     try:
                         self.clients[host_name].close()
-                    except:
+                    except Exception:
                         pass
                     del self.clients[host_name]
 

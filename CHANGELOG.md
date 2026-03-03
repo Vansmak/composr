@@ -1,5 +1,23 @@
 # Changelog
 All notable changes to Composr will be documented in this file.
+
+## [1.8.0] - 2026-03-02
+### Added
+- **🔒 Optional Authentication**: Session-based login system
+  - Set `AUTH_USERNAME` and `AUTH_PASSWORD` environment variables to enable
+  - Leave unset to run without authentication (backwards compatible)
+  - Login page styled to match app theme
+  - Logout button in the header when authenticated
+  - `SECRET_KEY` environment variable for secure session signing
+
+### Fixed
+- **Container Actions**: `start`, `stop`, and `restart` buttons no longer show "showModal is not defined" error — missing `showModal`/`closeModal` functions now implemented
+- **Container Actions**: Fixed "container is not defined" error when a successful action tried to reference `container.name` (now correctly uses `id`)
+- **Container Updates**: Removed duplicate form fields (`auto-check-enabled` and `check-interval-hours` appeared twice in the update settings modal)
+- **Table View**: `getContainerHealth` now guarded against being undefined, preventing crashes when table view loads before main.js
+- **Remote Hosts**: Fixed null `hostInfo` access that could crash the hosts display when the API returns incomplete host data
+- **Error Handling**: Replaced bare `except:` clauses in `app.py` (backup cleanup, compose validation, env extraction) and `remote_hosts.py` (client close) with specific exception types to prevent silently swallowing critical errors
+
 ## [1.7.7] - 2025-07-01
 ### Added
 - **🎯 Smart Health Indicators**: Intelligent container health assessment system
