@@ -1,6 +1,13 @@
 # Changelog
 All notable changes to Composr will be documented in this file.
 
+## [1.8.1] - 2026-04-09
+### Fixed
+- **Container Updates**: Fixed `is_safe_update`, `should_auto_update`, `should_scheduled_repull`, `perform_auto_updates`, `repull_container`, `repull_compose_container`, and `repull_standalone_container` being defined outside the `ContainerUpdateManager` class — every call to these methods would crash with `AttributeError`
+- **Container Updates**: Fixed `should_skip_image` being called with a `container_name` argument it didn't accept — now accepts and checks container name against a new `exclude_container_patterns` setting
+- **Container Updates**: Fixed remote host deploys silently targeting local Docker instead of the specified host — `deploy_updated_compose` and `repull_compose_container` now correctly look up the host URL via `host_manager` and set `DOCKER_HOST`
+- **Container Updates**: Fixed `update_compose_file_image` destroying compose file formatting — replaced `yaml.safe_load` + `yaml.dump` round-trip (which strips comments and reformats) with a text-based replacement that preserves the original file structure
+
 ## [1.8.0] - 2026-03-02
 ### Added
 - **🔒 Optional Authentication**: Session-based login system
