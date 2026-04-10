@@ -1,6 +1,10 @@
 # Changelog
 All notable changes to Composr will be documented in this file.
 
+## [1.8.2] - 2026-04-09
+### Fixed
+- **Container Updates**: Fixed rollback endpoint calling `deploy_updated_compose` with missing `host_manager` argument — rollbacks would crash with a `TypeError`
+
 ## [1.8.1] - 2026-04-09
 ### Fixed
 - **Container Updates**: Fixed `is_safe_update`, `should_auto_update`, `should_scheduled_repull`, `perform_auto_updates`, `repull_container`, `repull_compose_container`, and `repull_standalone_container` being defined outside the `ContainerUpdateManager` class — every call to these methods would crash with `AttributeError`

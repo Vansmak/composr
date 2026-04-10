@@ -27,7 +27,7 @@ from functions import (
 from remote_hosts import host_manager
 
 # Add after imports
-__version__ = "1.8.1"
+__version__ = "1.8.2"
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -4150,7 +4150,8 @@ def rollback_container_update():
         result = container_update_manager.deploy_updated_compose(
             compose_file=original_file,
             service=data.get('service_name', ''),
-            host=host
+            host=host,
+            host_manager=host_manager
         )
         
         if result['success']:
