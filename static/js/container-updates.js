@@ -118,6 +118,7 @@ async function checkContainerUpdates(force = true, showLoading = true) {
         
         if (result.status === 'success') {
             containerUpdateStatus = {
+                ...containerUpdateStatus,
                 cache: result,
                 last_check: result.last_check
             };
