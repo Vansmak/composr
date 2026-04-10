@@ -29,12 +29,16 @@ class ContainerUpdateManager:
             'notify_on_updates': True,
             'auto_update_enabled': False,  # Safer default
             'auto_update_schedule': 'manual',  # manual, daily, weekly
-            'exclude_patterns': ['latest', 'dev', 'test'],  # Skip these tags
+            'auto_update_tags': ['stable', 'prod'],
+            'exclude_patterns': ['dev', 'test'],  # Skip these tags
             'exclude_container_patterns': [],  # Skip containers matching these name patterns
             'include_patterns': ['stable', 'main', 'prod', r'^\d+\.\d+\.\d+$'],  # Add version regex
             'backup_before_update': True,
             'rollback_on_failure': True,
-            'max_concurrent_updates': 3
+            'max_concurrent_updates': 3,
+            'scheduled_repull_enabled': False,
+            'repull_interval_hours': 24,
+            'repull_tags': ['latest', 'main', 'stable'],
         }
 
         self.settings = self.load_settings()
