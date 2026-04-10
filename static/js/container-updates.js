@@ -911,6 +911,10 @@ async function saveContainerUpdateSettings() {
         if (result.status === 'success') {
             showMessage('success', 'Container update settings saved');
             document.querySelector('.container-update-settings-modal').remove();
+            // Refresh cached settings so reopening the modal shows current state
+            if (containerUpdateStatus) {
+                containerUpdateStatus.settings = settings;
+            }
         } else {
             showMessage('error', result.message || 'Failed to save settings');
         }
