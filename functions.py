@@ -344,6 +344,26 @@ def get_stack_profiles(compose_path):
     return {'core': core, 'profiles': profiles}
 
 
+def get_host_network_services(compose_path):
+    """Service names using network_mode: host - these bind directly to the
+    host machine's own network stack (a specific IP, mDNS, low-level ports)
+    and are typically NOT portable to a different host without editing the
+    file, unlike a normal published-port service which Docker's networking
+    layer abstracts away. Used to warn before a host change, never to block
+    one - some host-mode services genuinely are portable (e.g. anything that
+    doesn't hardcode an IP), this just can't tell the difference safely."""
+    try:
+        with open(compose_path, 'r') as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        return []
+    services = data.get('services') or {}
+    return [
+        name for name, cfg in services.items()
+        if isinstance(cfg, dict) and cfg.get('network_mode') == 'host'
+    ]
+
+
 def _services_for_project(host_client, project_name):
     """Set of service names (from com.docker.compose.service labels) that have
     a container - running or not - for the given compose project on this host."""

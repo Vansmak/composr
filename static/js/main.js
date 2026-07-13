@@ -1845,7 +1845,16 @@ function loadPopupPropertiesPanel(popup, composeFile, composeProject, composeSer
         hostSelect.addEventListener('change', () => {
             const newHost = hostSelect.value;
             if (newHost === host) return;
-            if (!confirm(`Move "${composeProject}" to run on "${newHost}"? This stops it wherever it's currently running and redeploys it there.`)) {
+
+            const hostNetworkServices = profileData.host_network_services || [];
+            let confirmMsg = `Move "${composeProject}" to run on "${newHost}"? This stops it wherever it's currently running and redeploys it there.`;
+            if (hostNetworkServices.length) {
+                confirmMsg += `\n\n⚠ ${hostNetworkServices.join(', ')} use${hostNetworkServices.length === 1 ? 's' : ''} network_mode: host - ` +
+                    `these bind directly to the host machine's own network (a specific IP, low-level ports) and typically don't work unmodified on a different host. ` +
+                    `This may fail or misbehave on "${newHost}".`;
+            }
+
+            if (!confirm(confirmMsg)) {
                 hostSelect.value = host;
                 return;
             }
@@ -3033,7 +3042,8 @@ function loadStackProfiles(modal, stackName, composeFile, hostName) {
 
             container.innerHTML = `
                 <div class="stack-profiles-section" style="margin-bottom:1rem; padding:0.75rem; background:rgba(128,128,128,0.08); border-radius:6px;"
-                     data-source-file="${composeFile}" data-stack-name="${stackName}" data-deploy-host="${deployHost}">
+                     data-source-file="${composeFile}" data-stack-name="${stackName}" data-deploy-host="${deployHost}"
+                     data-host-network-services="${(data.host_network_services || []).join(',')}">
                     <h4 style="margin:0 0 0.5rem 0;">Host</h4>
                     <select class="filter-select stack-host-select" style="width:100%; margin-bottom:0.5rem;"
                             onchange="onStackHostChanged(this)">
@@ -3078,7 +3088,15 @@ function onStackHostChanged(selectEl) {
     const selected = Array.from(section.querySelectorAll('input[data-profile]:checked'))
         .map(input => input.dataset.profile);
 
-    if (!confirm(`Move "${stackName}" to run on "${newHost}"? This stops it wherever it's currently running and redeploys it there.`)) {
+    const hostNetworkServices = (section.dataset.hostNetworkServices || '').split(',').filter(Boolean);
+    let confirmMsg = `Move "${stackName}" to run on "${newHost}"? This stops it wherever it's currently running and redeploys it there.`;
+    if (hostNetworkServices.length) {
+        confirmMsg += `\n\n⚠ ${hostNetworkServices.join(', ')} use${hostNetworkServices.length === 1 ? 's' : ''} network_mode: host - ` +
+            `these bind directly to the host machine's own network (a specific IP, low-level ports) and typically don't work unmodified on a different host. ` +
+            `This may fail or misbehave on "${newHost}".`;
+    }
+
+    if (!confirm(confirmMsg)) {
         loadStackProfiles(selectEl.closest('.logs-modal'), stackName, composeFile, section.dataset.deployHost);
         return;
     }

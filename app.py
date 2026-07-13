@@ -24,7 +24,7 @@ from functions import (
     compute_profile_deselection_diff, infer_active_profiles, compute_service_move,
     commit_service_move, compute_move_confirm_token, find_container_holding_port,
     diagnose_docker_failure, check_deploy_port_conflicts, compute_desired_active_services,
-    change_service_port, get_host_port_map, suggest_free_port
+    change_service_port, get_host_port_map, suggest_free_port, get_host_network_services
 )
 
 
@@ -33,6 +33,12 @@ from remote_hosts import host_manager
 
 # Add after imports
 __version__ = "1.8.5"
+# Cache-busting suffix for local static assets, set once at process startup.
+# Without this, browsers can keep serving a stale main.js/styles.css
+# indefinitely across redeploys since the template references them with no
+# version query string at all - confirmed this was actually happening
+# (a bug report's stack trace lined up with pre-fix code after a redeploy).
+STATIC_VERSION = str(int(time.time()))
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -157,7 +163,7 @@ container_update_manager = ContainerUpdateManager(
 # Main route
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', static_version=STATIC_VERSION)
 
 
 @app.route('/api/backup/create', methods=['POST'])
@@ -2588,7 +2594,8 @@ def get_stack_profiles_endpoint():
             'active_profiles': active_profiles,
             'deploy_host': deploy_host,
             'deploy_host_connected': deploy_host_info.get('connected', False),
-            'available_hosts': list(hosts_status.keys()) + (['local'] if 'local' not in hosts_status else [])
+            'available_hosts': list(hosts_status.keys()) + (['local'] if 'local' not in hosts_status else []),
+            'host_network_services': get_host_network_services(full_path)
         })
     except Exception as e:
         logger.error(f"Failed to get stack profiles: {e}")
