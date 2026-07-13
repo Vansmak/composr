@@ -3,6 +3,8 @@ import os
 import re
 import tempfile
 import datetime
+import difflib
+import hashlib
 import pytz
 import yaml
 import docker
@@ -387,15 +389,27 @@ def _atomic_write_validated(file_path, new_lines, logger):
     reaches file_path in the first place, so .bak is for manual recovery of an
     unwanted-but-valid edit, not automatic rollback of a failed one.
 
+    file_path (and its parent directory) may not exist yet - a brand-new
+    compose file is a valid target for a service move, not an error.
+
     Returns (success: bool, message: str).
     """
-    try:
-        with open(file_path, 'r') as f:
-            original_content = f.read()
-    except Exception as e:
-        return False, f'Could not read original file: {e}'
+    file_existed = os.path.exists(file_path)
+    original_content = None
+    if file_existed:
+        try:
+            with open(file_path, 'r') as f:
+                original_content = f.read()
+        except Exception as e:
+            return False, f'Could not read original file: {e}'
 
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(file_path) or '.')
+    parent_dir = os.path.dirname(file_path) or '.'
+    try:
+        os.makedirs(parent_dir, exist_ok=True)
+    except Exception as e:
+        return False, f'Could not create directory {parent_dir}: {e}'
+
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=parent_dir)
     try:
         with os.fdopen(tmp_fd, 'w') as f:
             f.writelines(new_lines)
@@ -403,8 +417,9 @@ def _atomic_write_validated(file_path, new_lines, logger):
         with open(tmp_path, 'r') as f:
             yaml.safe_load(f)  # validate before committing - never write invalid YAML
 
-        with open(file_path + '.bak', 'w') as f:
-            f.write(original_content)
+        if file_existed:
+            with open(file_path + '.bak', 'w') as f:
+                f.write(original_content)
 
         os.replace(tmp_path, file_path)
         return True, 'Saved successfully'
@@ -464,6 +479,275 @@ def set_service_inactive(file_path, service_name, inactive, logger):
     return _atomic_write_validated(file_path, new_lines, logger)
 
 
+# --- Move a service between compose files ---
+
+def _read_lines(path):
+    if os.path.exists(path):
+        with open(path, 'r') as f:
+            return f.readlines()
+    return []
+
+
+def _reindent_block(block_lines, service_delta, property_delta):
+    """Re-indent a service block for its new file: the "name:" line shifts by
+    service_delta (to match the target's service-level indent), everything
+    nested under it shifts by property_delta (to match the target's own
+    property indent, which can differ from its service indent - e.g. 4-space
+    services with 8-space properties). Deeper nesting keeps its original
+    relative offset from the property level, since docker-compose files use a
+    single consistent step size within their own services: section."""
+    if service_delta == 0 and property_delta == 0:
+        return list(block_lines)
+    new_lines = []
+    for i, line in enumerate(block_lines):
+        if not line.strip():
+            new_lines.append(line)
+            continue
+        current_indent = len(line) - len(line.lstrip(' '))
+        delta = service_delta if i == 0 else property_delta
+        new_indent = max(current_indent + delta, 0)
+        new_lines.append(' ' * new_indent + line.lstrip(' '))
+    return new_lines
+
+
+def _extract_host_ports(service_cfg):
+    ports = set()
+    for p in (service_cfg.get('ports') or []):
+        if isinstance(p, str) and ':' in p:
+            ports.add(p.split(':')[0].strip('"').strip("'"))
+        elif isinstance(p, dict) and 'published' in p:
+            ports.add(str(p['published']))
+    return ports
+
+
+def _scan_move_warnings(source_path, target_path, service_name, block_lines, target_lines):
+    """Report (never auto-fix) the ways a moved service could break: depends_on
+    crossing files, top-level volumes/networks the target doesn't declare,
+    ${VAR} refs missing from the target dir's .env, name/container_name/port
+    collisions with the target's existing services. The dynamic "is this port
+    already bound by a running container on the target host" check needs a
+    docker client and is layered on by the caller (app.py), which has one.
+    """
+    warnings = []
+    block_text = ''.join(block_lines)
+
+    try:
+        with open(source_path, 'r') as f:
+            source_data = yaml.safe_load(f) or {}
+    except Exception:
+        source_data = {}
+    source_services = source_data.get('services') or {}
+    moving_cfg = source_services.get(service_name) or {}
+    remaining_services = {k: v for k, v in source_services.items() if k != service_name}
+
+    try:
+        target_data = (yaml.safe_load(''.join(target_lines)) or {}) if target_lines else {}
+    except Exception:
+        target_data = {}
+    target_services = target_data.get('services') or {}
+
+    source_base = os.path.basename(source_path)
+    target_base = os.path.basename(target_path)
+
+    # a) depends_on crossing the file boundary, both directions
+    depends_on = moving_cfg.get('depends_on')
+    if depends_on:
+        dep_names = list(depends_on.keys()) if isinstance(depends_on, dict) else list(depends_on)
+        staying = [d for d in dep_names if d in remaining_services]
+        if staying:
+            warnings.append(
+                f"{service_name} depends_on {', '.join(staying)}, which would stay in {source_base} - cross-file depends_on doesn't work."
+            )
+    for other_name, other_cfg in remaining_services.items():
+        if not isinstance(other_cfg, dict):
+            continue
+        other_deps = other_cfg.get('depends_on')
+        if not other_deps:
+            continue
+        dep_names = list(other_deps.keys()) if isinstance(other_deps, dict) else list(other_deps)
+        if service_name in dep_names:
+            warnings.append(
+                f"{other_name} (staying in {source_base}) depends_on {service_name}, which is moving."
+            )
+
+    # b) top-level volumes/networks the service uses that source declares but target doesn't
+    for key in ('volumes', 'networks'):
+        used = set()
+        cfg_val = moving_cfg.get(key)
+        source_top = source_data.get(key) or {}
+        if isinstance(cfg_val, list):
+            for v in cfg_val:
+                if isinstance(v, str) and ':' in v and v.split(':')[0] in source_top:
+                    used.add(v.split(':')[0])
+        elif isinstance(cfg_val, dict):
+            used.update(name for name in cfg_val if name in source_top)
+        missing = used - set((target_data.get(key) or {}).keys())
+        if missing:
+            warnings.append(
+                f"{service_name} uses top-level {key} ({', '.join(sorted(missing))}) declared in {source_base} but not in {target_base} - add them there too."
+            )
+
+    # c) ${VAR} references vs the target directory's .env
+    var_refs = set(re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)', block_text))
+    if var_refs:
+        env_path = os.path.join(os.path.dirname(target_path), '.env')
+        env_keys = set()
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        env_keys.add(line.split('=', 1)[0].strip())
+        missing_vars = var_refs - env_keys
+        if missing_vars:
+            warnings.append(
+                f"{service_name} references {', '.join('${' + v + '}' for v in sorted(missing_vars))} not found in "
+                f"{os.path.dirname(target_path)}/.env - may be undefined after the move unless set elsewhere."
+            )
+
+    # d) service-name / container_name collision in target
+    if service_name in target_services:
+        warnings.append(f"A service named {service_name} already exists in {target_base}.")
+    moving_container_name = moving_cfg.get('container_name')
+    if moving_container_name:
+        for other_name, other_cfg in target_services.items():
+            if isinstance(other_cfg, dict) and other_cfg.get('container_name') == moving_container_name:
+                warnings.append(f"container_name '{moving_container_name}' is already used by {other_name} in {target_base}.")
+
+    # e) host-port collision with the target file's other services (static check;
+    # the running-container check against the target host is added by the caller)
+    moving_ports = _extract_host_ports(moving_cfg)
+    for other_name, other_cfg in target_services.items():
+        if not isinstance(other_cfg, dict):
+            continue
+        collision = moving_ports & _extract_host_ports(other_cfg)
+        if collision:
+            warnings.append(f"Port(s) {', '.join(sorted(collision))} used by {service_name} are also used by {other_name} in {target_base}.")
+
+    return warnings
+
+
+def compute_service_move(source_path, target_path, service_name, logger):
+    """Compute (without writing) moving a service block from source_path to
+    target_path. Raises ValueError if the service can't be found. Returns a
+    dict with before/after content for both files, unified diffs, and
+    warnings - the internal _new_source_lines/_new_target_lines keys are what
+    commit_service_move actually writes.
+    """
+    source_lines = _read_lines(source_path)
+    if not source_lines:
+        raise ValueError(f'Source file {source_path} not found or empty')
+
+    block = find_service_block(source_path, service_name)
+    if not block:
+        raise ValueError(f'Service {service_name} not found in {source_path}')
+    start, end = block
+    block_lines = source_lines[start:end + 1]
+
+    source_indent_info = _detect_compose_indent(source_lines)
+    if not source_indent_info:
+        raise ValueError(f'Could not detect services: section in {source_path}')
+    _, source_service_indent, source_property_indent = source_indent_info
+    source_property_indent = source_property_indent or source_service_indent
+
+    target_lines = _read_lines(target_path)
+    target_indent_info = _detect_compose_indent(target_lines) if target_lines else None
+    if target_indent_info:
+        _, target_service_indent, target_property_indent = target_indent_info
+        target_property_indent = target_property_indent or target_service_indent
+    else:
+        target_service_indent = source_service_indent
+        target_property_indent = source_property_indent
+
+    moved_block = _reindent_block(
+        block_lines,
+        target_service_indent - source_service_indent,
+        target_property_indent - source_property_indent
+    )
+
+    # new source content: block removed
+    new_source_lines = source_lines[:start] + source_lines[end + 1:]
+
+    # new target content: appended under services: (created if it doesn't exist yet)
+    if not target_lines:
+        new_target_lines = ['services:\n'] + moved_block
+    elif target_indent_info:
+        services_idx = target_indent_info[0]
+        insert_at = len(target_lines)
+        for i in range(services_idx + 1, len(target_lines)):
+            raw = target_lines[i].rstrip('\n')
+            stripped = raw.strip()
+            if not stripped:
+                continue
+            if len(raw) - len(raw.lstrip(' ')) == 0:
+                insert_at = i
+                break
+        prefix = target_lines[:insert_at]
+        if prefix and not prefix[-1].endswith('\n'):
+            prefix[-1] = prefix[-1] + '\n'
+        new_target_lines = prefix + moved_block + target_lines[insert_at:]
+    else:
+        trailing_gap = ['\n'] if target_lines and target_lines[-1].strip() else []
+        new_target_lines = target_lines + trailing_gap + ['services:\n'] + moved_block
+
+    source_diff = ''.join(difflib.unified_diff(
+        source_lines, new_source_lines,
+        fromfile=os.path.basename(source_path), tofile=os.path.basename(source_path)
+    ))
+    target_diff = ''.join(difflib.unified_diff(
+        target_lines, new_target_lines,
+        fromfile=os.path.basename(target_path) if target_lines else '(new file)',
+        tofile=os.path.basename(target_path)
+    ))
+
+    warnings = _scan_move_warnings(source_path, target_path, service_name, block_lines, target_lines)
+
+    return {
+        'source_before': ''.join(source_lines),
+        'source_after': ''.join(new_source_lines),
+        'target_before': ''.join(target_lines),
+        'target_after': ''.join(new_target_lines),
+        'source_diff': source_diff,
+        'target_diff': target_diff,
+        'warnings': warnings,
+        '_new_source_lines': new_source_lines,
+        '_new_target_lines': new_target_lines,
+    }
+
+
+def compute_move_confirm_token(source_path, target_path, service_name):
+    """Content hash of both files at preview time. commit_service_move's caller
+    must recompute this against the CURRENT file contents and reject a
+    mismatch - guards against committing a stale preview after either file
+    changed underneath it (another tab, a manual edit, a concurrent request)."""
+    source_content = ''.join(_read_lines(source_path))
+    target_content = ''.join(_read_lines(target_path))
+    payload = f"{source_path}|{target_path}|{service_name}|{source_content}|{target_content}"
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+def commit_service_move(source_path, target_path, service_name, logger):
+    """Write the move computed by compute_service_move. Caller must verify the
+    confirm token first. Target is written before source is trimmed - if the
+    source-removal step fails, the service exists in both files (a duplicate,
+    safe and recoverable) rather than nowhere (lost entirely)."""
+    result = compute_service_move(source_path, target_path, service_name, logger)
+
+    ok, msg = _atomic_write_validated(target_path, result['_new_target_lines'], logger)
+    if not ok:
+        return False, f'Failed to write target file: {msg}', result
+
+    ok, msg = _atomic_write_validated(source_path, result['_new_source_lines'], logger)
+    if not ok:
+        logger.error(f'Move partially failed: target written but source removal failed: {msg}')
+        return False, (
+            f'{target_path} was updated but removing the service from {source_path} failed: {msg}. '
+            f'The service now exists in both files - please check {source_path} manually.'
+        ), result
+
+    return True, 'Service moved successfully', result
+
+
 def extract_env_from_compose(compose_file_path, modify_compose=False, logger=None):
     """Extract environment variables from a compose file to create a .env file"""
     try:
@@ -513,7 +797,7 @@ _YAML_PYYAML_RE = re.compile(r'line (\d+), column (\d+)')
 _YAML_COMPOSEGO_RE = re.compile(r'yaml: line (\d+):\s*(.*)')
 
 
-def _find_container_holding_port(host_client, port):
+def find_container_holding_port(host_client, port):
     """Scan a host's containers for one publishing the given host port. Returns the
     container or None - never raises, since this is a best-effort diagnostic lookup
     that must not break the error response it's attached to."""
@@ -564,7 +848,7 @@ def diagnose_docker_failure(raw_text, logger, host_client=None, host_name='local
     match = _PORT_CONFLICT_RE.search(raw_text)
     if match:
         port = match.group(1)
-        holder = _find_container_holding_port(host_client, port) if host_client else None
+        holder = find_container_holding_port(host_client, port) if host_client else None
         if holder:
             return {
                 'pattern': 'port_conflict',

@@ -1684,6 +1684,7 @@ function showContainerPopup(id, name, host = 'local') {
         const customUrl = urlData.url || '';
         
         let portsInfo = 'No exposed ports';
+        let composeFile = '', composeProject = '', composeService = '';
         if (inspectData.status === 'success') {
             const portBindings = inspectData.data.HostConfig?.PortBindings || {};
             if (Object.keys(portBindings).length > 0) {
@@ -1697,8 +1698,13 @@ function showContainerPopup(id, name, host = 'local') {
                     .join(', ');
                 portsInfo = portsList;
             }
+
+            const labels = inspectData.data.Config?.Labels || {};
+            composeFile = labels['com.docker.compose.project.config_files'] || '';
+            composeProject = labels['com.docker.compose.project'] || '';
+            composeService = labels['com.docker.compose.service'] || '';
         }
-        
+
         const popup = document.createElement('div');
         popup.className = 'logs-modal';
         popup.innerHTML = `
@@ -1734,6 +1740,7 @@ function showContainerPopup(id, name, host = 'local') {
                 <button class="btn btn-primary" onclick="inspectContainer('${id}', '${host}')">Inspect</button>
                 <button class="btn btn-primary" onclick="execIntoContainer('${id}', '${name}', '${host}')">Terminal</button>
                 <button class="btn btn-primary" onclick="repullContainer('${id}', '${host}')">Repull</button>
+                ${composeService ? `<button class="btn btn-secondary" onclick="showMoveServiceDialog('${composeFile}', '${composeService}', '${host}')">Move to stack…</button>` : ''}
                 <button class="btn btn-error" onclick="removeContainer('${id}', '${name}', '${host}')">Remove</button>
             </div>
         `;
@@ -1749,6 +1756,140 @@ function showContainerPopup(id, name, host = 'local') {
     .catch(error => {
         console.error('Error getting container settings:', error);
         showMessage('error', 'Failed to load container settings');
+    });
+}
+
+// "Move to stack…" - pick a target compose file for this service.
+function showMoveServiceDialog(composeFile, composeService, host) {
+    fetch('/api/compose/files')
+        .then(r => r.json())
+        .then(data => {
+            const files = (data.files || []).filter(f => f !== composeFile);
+            const modal = document.createElement('div');
+            modal.className = 'logs-modal';
+            modal.innerHTML = `
+                <div class="modal-header">
+                    <h3>Move "${composeService}" to another stack</h3>
+                    <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
+                </div>
+                <div class="modal-content" style="padding: 1rem;">
+                    <div style="margin-bottom: 1rem;">
+                        <label>Target compose file:</label>
+                        <select id="move-target-select" class="filter-select" style="width:100%; margin-top:0.25rem;">
+                            ${files.map(f => `<option value="${f}">${f}</option>`).join('')}
+                            <option value="__new__">+ New file path…</option>
+                        </select>
+                        <input type="text" id="move-target-new" class="url-input" placeholder="e.g. myproject/docker-compose.yml" style="display:none; margin-top:0.5rem; width:100%;">
+                    </div>
+                    <div id="move-preview-result"></div>
+                    <div class="actions" style="margin-top:1rem;">
+                        <button class="btn btn-primary" onclick="previewServiceMove('${composeFile}', '${composeService}', '${host}')">Preview Move</button>
+                        <button class="btn btn-secondary" onclick="this.closest('.logs-modal').remove()">Cancel</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            const select = modal.querySelector('#move-target-select');
+            const newInput = modal.querySelector('#move-target-new');
+            select.addEventListener('change', () => {
+                newInput.style.display = select.value === '__new__' ? 'block' : 'none';
+            });
+        })
+        .catch(error => {
+            showMessage('error', `Failed to load compose files: ${error.message}`);
+        });
+}
+
+function _getSelectedMoveTarget(modal) {
+    const select = modal.querySelector('#move-target-select');
+    const newInput = modal.querySelector('#move-target-new');
+    return select.value === '__new__' ? newInput.value.trim() : select.value;
+}
+
+function previewServiceMove(sourceFile, service, host) {
+    const modal = document.querySelector('.logs-modal');
+    const targetFile = _getSelectedMoveTarget(modal);
+    if (!targetFile) {
+        showMessage('error', 'Please select or enter a target compose file');
+        return;
+    }
+
+    const resultDiv = modal.querySelector('#move-preview-result');
+    resultDiv.innerHTML = '<p>Loading preview…</p>';
+
+    fetch('/api/service/move/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_file: sourceFile, service, target_file: targetFile })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status !== 'success') {
+            resultDiv.innerHTML = `<p style="color: var(--accent-error);">${data.message}</p>`;
+            return;
+        }
+
+        const warningsHtml = data.warnings.length ? `
+            <div style="padding:0.75rem; background:rgba(255,193,7,0.15); border:1px solid #ffc107; border-radius:6px; margin:0.5rem 0;">
+                <strong>Warnings (not auto-fixed - review before confirming):</strong>
+                <ul style="margin:0.5rem 0 0 1.25rem; padding:0;">
+                    ${data.warnings.map(w => `<li>${w}</li>`).join('')}
+                </ul>
+            </div>
+        ` : '';
+
+        resultDiv.innerHTML = `
+            ${warningsHtml}
+            <details open style="margin-bottom:0.5rem;">
+                <summary style="cursor:pointer;">Source file changes</summary>
+                <pre class="logs-content" style="max-height:200px; overflow:auto;">${data.source_diff || '(no changes shown)'}</pre>
+            </details>
+            <details open>
+                <summary style="cursor:pointer;">Target file changes</summary>
+                <pre class="logs-content" style="max-height:200px; overflow:auto;">${data.target_diff || '(no changes shown)'}</pre>
+            </details>
+            <label style="display:flex; align-items:center; gap:0.5rem; margin-top:0.75rem;">
+                <input type="checkbox" id="move-deploy-checkbox" checked>
+                Stop the old container and deploy on the new file
+            </label>
+            <button class="btn btn-success" style="margin-top:0.5rem;" onclick="commitServiceMove('${sourceFile}', '${service}', '${targetFile}', '${data.confirm_token}')">
+                Confirm Move
+            </button>
+        `;
+    })
+    .catch(error => {
+        resultDiv.innerHTML = `<p style="color: var(--accent-error);">Failed to preview: ${error.message}</p>`;
+    });
+}
+
+function commitServiceMove(sourceFile, service, targetFile, confirmToken) {
+    const modal = document.querySelector('.logs-modal');
+    const deploy = modal.querySelector('#move-deploy-checkbox')?.checked ?? true;
+
+    if (!confirm(`Move "${service}" from ${sourceFile} to ${targetFile}?`)) return;
+
+    setLoading(true, `Moving ${service}…`);
+    fetch('/api/service/move/commit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_file: sourceFile, service, target_file: targetFile, confirm_token: confirmToken, deploy })
+    })
+    .then(r => r.json())
+    .then(result => {
+        setLoading(false);
+        if (result.status === 'success') {
+            const deployNote = result.deploy ? (result.deploy.success ? ' and redeployed' : ` (deploy issue: ${result.deploy.message})`) : '';
+            showMessage('success', `${service} moved successfully${deployNote}`);
+            document.querySelectorAll('.logs-modal').forEach(m => m.remove());
+            refreshContainers();
+        } else {
+            showPersistentResult('Move Service', result, service);
+        }
+    })
+    .catch(error => {
+        setLoading(false);
+        showMessage('error', `Failed to move ${service}: ${error.message}`);
     });
 }
 

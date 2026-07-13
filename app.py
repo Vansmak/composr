@@ -21,7 +21,8 @@ from functions import (
     get_compose_files, scan_all_compose_files, resolve_compose_file_path,
     extract_env_from_compose, calculate_uptime, find_caddy_container, get_compose_files_cached,
     is_path_within_allowed_dirs, get_stack_profiles, find_service_block, set_service_inactive,
-    compute_profile_deselection_diff, infer_active_profiles
+    compute_profile_deselection_diff, infer_active_profiles, compute_service_move,
+    commit_service_move, compute_move_confirm_token, find_container_holding_port
 )
 
 
@@ -2496,7 +2497,187 @@ def set_service_inactive_endpoint():
     except Exception as e:
         logger.error(f"Failed to set service inactive state: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
-    
+
+
+def _resolve_compose_path_for_target(file_path):
+    """Resolve a move's target compose file - may already exist, or may be a
+    path that doesn't exist yet (a fresh file to create), mirroring how
+    save_compose already handles a brand-new compose file."""
+    full_path = resolve_compose_file_path(file_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+    if full_path:
+        return full_path
+    full_path = os.path.join(COMPOSE_DIR, file_path)
+    if is_path_within_allowed_dirs(full_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS):
+        return full_path
+    return None
+
+
+@app.route('/api/service/move/preview', methods=['POST'])
+def preview_service_move():
+    """Preview moving a service between compose files: diffs of both files
+    plus warnings (never auto-fixed). Never writes anything - see
+    /api/service/move/commit, which requires this preview's confirm_token."""
+    try:
+        data = request.json or {}
+        source_file = data.get('source_file')
+        service = data.get('service')
+        target_file = data.get('target_file')
+
+        if not source_file or not service or not target_file:
+            return jsonify({'status': 'error', 'message': 'source_file, service, and target_file are required'})
+
+        source_path = resolve_compose_file_path(source_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if not source_path or not os.path.exists(source_path):
+            return jsonify({'status': 'error', 'message': f'Source compose file {source_file} not found'})
+
+        target_path = _resolve_compose_path_for_target(target_file)
+        if not target_path:
+            return jsonify({'status': 'error', 'message': 'Invalid target file path'})
+
+        if os.path.realpath(source_path) == os.path.realpath(target_path):
+            return jsonify({'status': 'error', 'message': 'Source and target are the same file'})
+
+        try:
+            result = compute_service_move(source_path, target_path, service, logger)
+        except ValueError as e:
+            return jsonify({'status': 'error', 'message': str(e)})
+
+        warnings = list(result['warnings'])
+
+        # Dynamic check, layered on here since it needs a docker client:
+        # is any of the moving service's ports already bound by a running
+        # container? Local only until Commit 3 adds real per-stack deploy hosts.
+        try:
+            with open(source_path, 'r') as f:
+                import yaml
+                source_data = yaml.safe_load(f) or {}
+            source_project = source_data.get('name', os.path.basename(os.path.dirname(source_path)))
+            moving_cfg = (source_data.get('services') or {}).get(service) or {}
+            moving_ports = set()
+            for p in (moving_cfg.get('ports') or []):
+                if isinstance(p, str) and ':' in p:
+                    moving_ports.add(p.split(':')[0].strip('"').strip("'"))
+            host_client = host_manager.get_client('local')
+            if host_client:
+                for port in moving_ports:
+                    holder = find_container_holding_port(host_client, port)
+                    if not holder:
+                        continue
+                    holder_labels = holder.labels or {}
+                    is_the_service_being_moved = (
+                        holder_labels.get('com.docker.compose.project') == source_project
+                        and holder_labels.get('com.docker.compose.service') == service
+                    )
+                    if not is_the_service_being_moved:
+                        warnings.append(f'Port {port} is currently in use by running container "{holder.name}".')
+        except Exception as e:
+            logger.warning(f"Could not check live port conflicts for move preview: {e}")
+
+        confirm_token = compute_move_confirm_token(source_path, target_path, service)
+
+        return jsonify({
+            'status': 'success',
+            'source_diff': result['source_diff'],
+            'target_diff': result['target_diff'],
+            'warnings': warnings,
+            'confirm_token': confirm_token
+        })
+    except Exception as e:
+        logger.error(f"Failed to preview service move: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+def _redeploy_moved_service(source_project, service, target_path):
+    """Stop+remove the old container via the Docker API directly - docker-compose
+    can't target it by service name anymore, since that service's definition is
+    already gone from the source file - then 'up -d' it in its new home."""
+    import subprocess
+    try:
+        host_client = host_manager.get_client('local')
+        if host_client:
+            for container in host_client.containers.list(all=True):
+                labels = container.labels or {}
+                if (labels.get('com.docker.compose.project') == source_project
+                        and labels.get('com.docker.compose.service') == service):
+                    try:
+                        if container.status == 'running':
+                            container.stop()
+                        container.remove()
+                        logger.info(f"Removed old container for moved service {service} (was in project {source_project})")
+                    except Exception as e:
+                        logger.error(f"Failed to remove old container for {service}: {e}")
+                        return {'success': False, 'message': f'Failed to remove old container: {e}'}
+
+        target_dir = os.path.dirname(target_path)
+        target_filename = os.path.basename(target_path)
+        env = os.environ.copy()
+        result = subprocess.run(
+            ["docker-compose", "-f", target_filename, "up", "-d", service],
+            cwd=target_dir, env=env, text=True, capture_output=True, timeout=300
+        )
+        if result.returncode != 0:
+            return {'success': False, 'message': f'Failed to deploy on new file: {result.stderr}'}
+        return {'success': True, 'message': f'{service} deployed in its new location'}
+    except Exception as e:
+        logger.error(f"Failed to redeploy moved service {service}: {e}")
+        return {'success': False, 'message': str(e)}
+
+
+@app.route('/api/service/move/commit', methods=['POST'])
+def commit_service_move_endpoint():
+    """Commit a previously-previewed service move. Requires the exact
+    confirm_token /preview returned - rejected if either file changed since
+    (another tab, a manual edit, a concurrent request)."""
+    try:
+        data = request.json or {}
+        source_file = data.get('source_file')
+        service = data.get('service')
+        target_file = data.get('target_file')
+        confirm_token = data.get('confirm_token')
+        deploy = data.get('deploy', True)
+
+        if not source_file or not service or not target_file or not confirm_token:
+            return jsonify({'status': 'error', 'message': 'source_file, service, target_file, and confirm_token are required'})
+
+        source_path = resolve_compose_file_path(source_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if not source_path or not os.path.exists(source_path):
+            return jsonify({'status': 'error', 'message': f'Source compose file {source_file} not found'})
+
+        target_path = _resolve_compose_path_for_target(target_file)
+        if not target_path:
+            return jsonify({'status': 'error', 'message': 'Invalid target file path'})
+
+        current_token = compute_move_confirm_token(source_path, target_path, service)
+        if current_token != confirm_token:
+            return jsonify({'status': 'error', 'message': 'This preview is out of date (a file changed since) - please preview again before committing.'})
+
+        # Capture the source project name BEFORE the file is modified, so the
+        # old container can still be found by its original compose labels.
+        with open(source_path, 'r') as f:
+            import yaml
+            source_data = yaml.safe_load(f) or {}
+        source_project = source_data.get('name', os.path.basename(os.path.dirname(source_path)))
+
+        try:
+            ok, message, move_result = commit_service_move(source_path, target_path, service, logger)
+        except ValueError as e:
+            return jsonify({'status': 'error', 'message': str(e)})
+
+        if not ok:
+            return jsonify({'status': 'error', 'message': message})
+
+        deploy_result = _redeploy_moved_service(source_project, service, target_path) if deploy else None
+
+        return jsonify({
+            'status': 'success',
+            'message': message,
+            'deploy': deploy_result
+        })
+    except Exception as e:
+        logger.error(f"Failed to commit service move: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
 # Environment file routes
 @app.route('/api/env/files')
 def get_env_files():
