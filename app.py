@@ -20,7 +20,8 @@ from functions import (
     initialize_docker_client, load_container_metadata, save_container_metadata,
     get_compose_files, scan_all_compose_files, resolve_compose_file_path,
     extract_env_from_compose, calculate_uptime, find_caddy_container, get_compose_files_cached,
-    is_path_within_allowed_dirs
+    is_path_within_allowed_dirs, get_stack_profiles, find_service_block, set_service_inactive,
+    compute_profile_deselection_diff, infer_active_profiles
 )
 
 
@@ -2261,100 +2262,239 @@ def extract_env_vars():
         logger.error(f"Failed to extract environment variables: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
+_profile_support_cache = {'checked': False, 'supported': True, 'detail': ''}
+
+
+def _check_profile_support():
+    """One-time capability probe for docker-compose --profile support (needs
+    v1.28+ or v2 - virtually every install today, but Compose v1 predates it)."""
+    if _profile_support_cache['checked']:
+        return _profile_support_cache['supported'], _profile_support_cache['detail']
+    import subprocess
+    supported, detail = True, ''
+    try:
+        result = subprocess.run(["docker-compose", "version", "--short"], capture_output=True, text=True, timeout=10)
+        version_str = result.stdout.strip()
+        if version_str.startswith('1.'):
+            try:
+                minor = int(version_str.split('.')[1])
+                supported = minor >= 28
+            except (IndexError, ValueError):
+                supported = False
+            if not supported:
+                detail = f'docker-compose {version_str} does not support --profile (needs v1.28+ or v2)'
+    except Exception as e:
+        logger.warning(f"Could not determine docker-compose version for profile support check: {e}")
+    _profile_support_cache.update(checked=True, supported=supported, detail=detail)
+    return supported, detail
+
+
+def _persist_stack_profiles(project_name, profiles):
+    metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
+    key = f"_stack:{project_name}"
+    metadata.setdefault(key, {})['selected_profiles'] = profiles
+    save_container_metadata(metadata, CONTAINER_METADATA_FILE, logger)
+
+
 @app.route('/api/compose/apply', methods=['POST'])
 def apply_compose():
     try:
         data = request.json
         if not data or 'file' not in data:
             return jsonify({'status': 'error', 'message': 'Invalid request data'})
-        
+
         compose_file = data['file']
         pull = data.get('pull', False)
-        
-        logger.info(f"Applying compose restart on file {compose_file}, pull={pull}")
-        
+        # None = existing unconditional down/up behavior, unchanged for every
+        # caller that doesn't know about profiles yet. A list (even []) switches
+        # to the profile-aware path below.
+        profiles = data.get('profiles')
+
+        logger.info(f"Applying compose restart on file {compose_file}, pull={pull}, profiles={profiles}")
+
         # Resolve the compose file path
         full_path = resolve_compose_file_path(compose_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
         if not full_path or not os.path.exists(full_path):
             logger.error(f"Compose file not found: {compose_file}, resolved: {full_path}")
             return jsonify({'status': 'error', 'message': f'Compose file {compose_file} not found'})
-        
+
         # Get the directory containing the compose file
         compose_dir = os.path.dirname(full_path)
         compose_filename = os.path.basename(full_path)
-        
+
         # Use subprocess to run docker-compose commands
         import subprocess
-        
+
         # Environment setup
         env = os.environ.copy()
-        
+
         # First, check if the compose file has a "name:" property
         with open(full_path, 'r') as f:
             import yaml
             compose_data = yaml.safe_load(f)
             project_name = compose_data.get('name', os.path.basename(compose_dir))
-        
+
         env["COMPOSE_PROJECT_NAME"] = project_name
         logger.info(f"Using project name: {project_name}")
-        
+
         # Prepare the command logging handler
         def log_command(cmd, cwd):
             cmd_str = ' '.join(cmd)
             logger.info(f"Running command: {cmd_str} in {cwd}")
             return subprocess.run(
-                cmd, 
-                check=True, 
-                cwd=cwd, 
+                cmd,
+                check=True,
+                cwd=cwd,
                 env=env,
                 text=True,
                 capture_output=True
             )
-        
+
+        # --profile is a global flag - must precede the subcommand
+        # ("docker-compose -f X --profile Y up -d" works, "up -d --profile Y" doesn't).
+        profile_flags = []
+        if profiles is not None:
+            supported, detail = _check_profile_support()
+            if not supported:
+                return jsonify({'status': 'error', 'message': detail})
+
+            host_client = host_manager.get_client('local')
+            if not host_client:
+                return jsonify({'status': 'error', 'message': 'Local Docker host not available'})
+            try:
+                deselected = compute_profile_deselection_diff(full_path, project_name, profiles, host_client)
+            except ValueError as e:
+                return jsonify({'status': 'error', 'message': str(e)})
+
+            # docker-compose never stops a service whose profile was deselected on
+            # its own - not even with --remove-orphans - so any service that's
+            # currently present but not in the desired set must be torn down
+            # explicitly before 'up', or it just keeps running untouched.
+            for service in deselected:
+                try:
+                    log_command(["docker-compose", "-f", compose_filename, "stop", service], compose_dir)
+                    log_command(["docker-compose", "-f", compose_filename, "rm", "-f", service], compose_dir)
+                    logger.info(f"Stopped and removed deselected service: {service}")
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Failed to retire deselected service {service}: {e.stderr}")
+                    return jsonify({'status': 'error', 'message': f'Failed to stop deselected service {service}: {e.stderr}'})
+
+            for p in profiles:
+                profile_flags.extend(["--profile", p])
+
         # Step 1: If requested, pull latest images
         if pull:
             logger.info("Pulling latest images...")
             try:
                 result = log_command(
-                    ["docker-compose", "-f", compose_filename, "pull"],
+                    ["docker-compose", "-f", compose_filename] + profile_flags + ["pull"],
                     compose_dir
                 )
                 logger.info(f"Pull completed: {result.stdout}")
             except subprocess.CalledProcessError as e:
                 logger.error(f"Pull failed: {e.stderr}")
                 return jsonify({'status': 'error', 'message': f'Failed to pull images: {e.stderr}'})
-        
-        # Step 2: Stop the containers
-        logger.info("Stopping containers...")
-        try:
-            result = log_command(
-                ["docker-compose", "-f", compose_filename, "down"],
-                compose_dir
-            )
-            logger.info(f"Down completed: {result.stdout}")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Down failed: {e.stderr}")
-            # Continue anyway, as some containers might not exist yet
-        
+
+        # Step 2: Stop the containers - only for the legacy (no profiles) path.
+        # A profile-aware deploy already retired exactly the deselected services
+        # above; blanket-downing here would also stop core/still-selected
+        # services that were never meant to restart.
+        if profiles is None:
+            logger.info("Stopping containers...")
+            try:
+                result = log_command(
+                    ["docker-compose", "-f", compose_filename, "down"],
+                    compose_dir
+                )
+                logger.info(f"Down completed: {result.stdout}")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Down failed: {e.stderr}")
+                # Continue anyway, as some containers might not exist yet
+
         # Step 3: Start the containers
         logger.info("Starting containers...")
         try:
             result = log_command(
-                ["docker-compose", "-f", compose_filename, "up", "-d"],
+                ["docker-compose", "-f", compose_filename] + profile_flags + ["up", "-d"],
                 compose_dir
             )
             logger.info(f"Up completed: {result.stdout}")
         except subprocess.CalledProcessError as e:
             logger.error(f"Up failed: {e.stderr}")
             return jsonify({'status': 'error', 'message': f'Failed to start containers: {e.stderr}'})
-        
+
+        if profiles is not None:
+            _persist_stack_profiles(project_name, profiles)
+
         return jsonify({
             'status': 'success',
             'message': f'Successfully restarted containers for {project_name}'
         })
-        
+
     except Exception as e:
         logger.error(f"Failed to apply compose file: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@app.route('/api/stack/profiles')
+def get_stack_profiles_endpoint():
+    """Profile info for a stack: core/profile-gated services, the persisted
+    selection, and the inferred-active set from real running containers -
+    inferred wins for display, since the terminal or stale metadata can diverge
+    from what's actually running."""
+    try:
+        compose_file = request.args.get('file')
+        project_name = request.args.get('project')
+        host = request.args.get('host', 'local')
+
+        if not compose_file or not project_name:
+            return jsonify({'status': 'error', 'message': 'file and project are required'})
+
+        full_path = resolve_compose_file_path(compose_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if not full_path or not os.path.exists(full_path):
+            return jsonify({'status': 'error', 'message': f'Compose file {compose_file} not found'})
+
+        stack = get_stack_profiles(full_path)
+
+        metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
+        selected_profiles = metadata.get(f"_stack:{project_name}", {}).get('selected_profiles', [])
+
+        host_client = host_manager.get_client(host)
+        active_profiles = infer_active_profiles(full_path, project_name, host_client) if host_client else []
+
+        return jsonify({
+            'status': 'success',
+            'core': stack['core'],
+            'profiles': stack['profiles'],
+            'selected_profiles': selected_profiles,
+            'active_profiles': active_profiles
+        })
+    except Exception as e:
+        logger.error(f"Failed to get stack profiles: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@app.route('/api/service/set-inactive', methods=['POST'])
+def set_service_inactive_endpoint():
+    """Toggle a service's `profiles: ["inactive"]` line - only for a service with
+    no existing profiles: key (see set_service_inactive's docstring)."""
+    try:
+        data = request.json or {}
+        compose_file = data.get('file')
+        service = data.get('service')
+        inactive = data.get('inactive', True)
+
+        if not compose_file or not service:
+            return jsonify({'status': 'error', 'message': 'file and service are required'})
+
+        full_path = resolve_compose_file_path(compose_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if not full_path or not os.path.exists(full_path):
+            return jsonify({'status': 'error', 'message': f'Compose file {compose_file} not found'})
+
+        ok, message = set_service_inactive(full_path, service, inactive, logger)
+        return jsonify({'status': 'success' if ok else 'error', 'message': message})
+    except Exception as e:
+        logger.error(f"Failed to set service inactive state: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
     
 # Environment file routes

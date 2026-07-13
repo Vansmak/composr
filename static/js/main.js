@@ -781,8 +781,85 @@ function renderContainers(containers) {
     updateTagFilterOptions(Array.from(allTags));
     updateStackFilterOptions(Array.from(allStacks));
     updateHostFilterOptions(Array.from(allHosts));
-    
+
+    // Ghost cards for profile-gated services that exist in a stack's compose
+    // file but have no running container right now (grid view only for now -
+    // fire-and-forget, appends once resolved so it never blocks the main render).
+    if (!isTableViewActive) {
+        loadGhostServiceCards(containers);
+    }
+
     console.log(`Rendered ${containers.length} containers`);
+}
+
+// Append a grayed-out placeholder card for a profile-gated service that isn't
+// currently deployed. Its only action is opening the stack modal, where the
+// profile can actually be toggled on.
+function renderGhostServiceCard(ghost, parentElement) {
+    const card = document.createElement('div');
+    card.className = 'container-card container-card-ghost';
+    card.dataset.ghost = 'true';
+    card.style.opacity = '0.55';
+
+    card.innerHTML = `
+        <div class="container-header">
+            <span class="container-name" title="${ghost.service} (not deployed)">${ghost.service}</span>
+        </div>
+        <div class="container-meta">
+            <div class="container-status-group">
+                <span class="host-badge-small">${ghost.host}</span>
+                <span class="status-stopped" title="Profile '${ghost.profile}' is not selected for this deploy">profile: ${ghost.profile} (off)</span>
+            </div>
+        </div>
+        <div class="container-ports">Not deployed</div>
+        <div class="actions">
+            <button class="btn btn-secondary btn-sm" style="width:100%;" onclick="showStackDetailsModal('${ghost.stackName}', '${ghost.composeFile}', '${ghost.host}')">
+                Open Stack to Enable
+            </button>
+        </div>
+    `;
+    parentElement.appendChild(card);
+}
+
+// For each distinct (stack, compose file, host) in the current container list,
+// check whether its compose file defines profile-gated services with no
+// container present right now, and render a ghost card for each one found.
+async function loadGhostServiceCards(containers) {
+    const containersList = document.getElementById('containers-list');
+    if (!containersList || !Array.isArray(containers) || !containers.length) return;
+
+    const stacks = new Map();
+    containers.forEach(c => {
+        if (!c.compose_file) return;
+        const stackName = window.extractStackName(c);
+        const host = c.host || 'local';
+        const key = `${stackName}|${c.compose_file}|${host}`;
+        if (!stacks.has(key)) {
+            stacks.set(key, { stackName, composeFile: c.compose_file, host, presentServices: new Set() });
+        }
+        if (c.compose_service) {
+            stacks.get(key).presentServices.add(c.compose_service);
+        }
+    });
+
+    for (const { stackName, composeFile, host, presentServices } of stacks.values()) {
+        try {
+            const params = new URLSearchParams({ file: composeFile, project: stackName, host });
+            const response = await fetch(`/api/stack/profiles?${params}`);
+            const data = await response.json();
+            if (data.status !== 'success' || !data.profiles) continue;
+
+            Object.entries(data.profiles).forEach(([profileName, services]) => {
+                services.forEach(serviceName => {
+                    if (!presentServices.has(serviceName)) {
+                        renderGhostServiceCard({ stackName, composeFile, host, service: serviceName, profile: profileName }, containersList);
+                    }
+                });
+            });
+        } catch (error) {
+            console.error(`Failed to load ghost services for stack ${stackName}:`, error);
+        }
+    }
 }
 
 // Enhanced filter options update functions
@@ -2490,6 +2567,7 @@ function showStackDetailsModal(stackName, composeFile, hostName = 'local') {
             <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
         </div>
         <div class="modal-content" style="padding: 1rem;">
+            ${composeFile ? '<div class="stack-profiles-content"></div>' : ''}
             <div class="stack-details-content">
                 <p>Loading stack resources...</p>
             </div>
@@ -2510,7 +2588,14 @@ function showStackDetailsModal(stackName, composeFile, hostName = 'local') {
         </div>
     `;
     document.body.appendChild(modal);
-    
+
+    // Load profile info (attributes-panel piece: which profiles exist, which
+    // are selected/active, "Always on" core services) - independent of the
+    // resources load below so a slow one doesn't block the other.
+    if (composeFile) {
+        loadStackProfiles(modal, stackName, composeFile, hostName);
+    }
+
     // Load stack resources with host context
     getStackResources(stackName, hostName)
         .then(resources => {
@@ -2614,6 +2699,88 @@ function showStackDetailsModal(stackName, composeFile, hostName = 'local') {
                 <p style="color: var(--text-secondary); font-size: 0.85rem;">${error.message || 'Unknown error'}</p>
             `;
         });
+}
+
+// Load and render the profile attribute-panel section of the stack modal:
+// "Always on" (core) services plus a toggle chip per profile. Deploying sends
+// the checked selection to /api/compose/apply's profile-aware path.
+function loadStackProfiles(modal, stackName, composeFile, hostName) {
+    const container = modal.querySelector('.stack-profiles-content');
+    if (!container) return;
+
+    const params = new URLSearchParams({ file: composeFile, project: stackName, host: hostName });
+    fetch(`/api/stack/profiles?${params}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                container.innerHTML = '';
+                return;
+            }
+
+            const profileNames = Object.keys(data.profiles || {});
+            const alwaysOn = (data.core || []).join(', ') || 'none';
+
+            const chips = profileNames.map(name => {
+                const isActive = (data.active_profiles || []).includes(name);
+                const services = (data.profiles[name] || []).join(', ');
+                return `
+                    <label class="profile-chip" style="display:inline-flex; align-items:center; gap:0.35rem; padding:0.3rem 0.6rem; border-radius:999px; border:1px solid var(--border-color); cursor:pointer; font-size:0.85rem;">
+                        <input type="checkbox" data-profile="${name}" ${isActive ? 'checked' : ''}>
+                        ${name} <span style="color: var(--text-secondary);">(${services})</span>
+                    </label>
+                `;
+            }).join('');
+
+            container.innerHTML = `
+                <div class="stack-profiles-section" style="margin-bottom:1rem; padding:0.75rem; background:rgba(128,128,128,0.08); border-radius:6px;">
+                    <h4 style="margin:0 0 0.5rem 0;">Profiles</h4>
+                    <div style="font-size:0.85rem; color: var(--text-secondary); margin-bottom:0.5rem;">
+                        <strong>Always on:</strong> ${alwaysOn}
+                    </div>
+                    ${profileNames.length ? `
+                        <div class="profile-toggle-list" style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+                            ${chips}
+                        </div>
+                        <button class="btn btn-success btn-sm" onclick="deployStackProfiles(this, '${composeFile}', '${stackName}', '${hostName}')">
+                            Deploy Selected Profiles
+                        </button>
+                    ` : `<p style="font-size:0.85rem; color: var(--text-secondary); font-style: italic; margin:0;">No optional profiles defined for this stack.</p>`}
+                </div>
+            `;
+        })
+        .catch(error => {
+            console.error(`Failed to load profiles for stack ${stackName}:`, error);
+            container.innerHTML = '';
+        });
+}
+
+// Deploy the profile selection currently checked in the stack modal.
+function deployStackProfiles(buttonEl, composeFile, stackName, hostName) {
+    const section = buttonEl.closest('.stack-profiles-section');
+    const selected = Array.from(section.querySelectorAll('input[data-profile]:checked'))
+        .map(input => input.dataset.profile);
+
+    setLoading(true, `Deploying ${stackName}...`);
+    fetch('/api/compose/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: composeFile, profiles: selected, pull: false })
+    })
+    .then(response => response.json())
+    .then(result => {
+        setLoading(false);
+        if (result.status === 'success') {
+            showMessage('success', `${stackName} deployed with profiles: ${selected.length ? selected.join(', ') : 'none (core only)'}`);
+            document.querySelectorAll('.logs-modal').forEach(m => m.remove());
+            refreshContainers();
+        } else {
+            showPersistentResult('Deploy', result, stackName, () => deployStackProfiles(buttonEl, composeFile, stackName, hostName));
+        }
+    })
+    .catch(error => {
+        setLoading(false);
+        showMessage('error', `Failed to deploy ${stackName}: ${error.message}`);
+    });
 }
 
 // 2. Add new compose action function that handles host
