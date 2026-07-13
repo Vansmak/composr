@@ -2227,8 +2227,6 @@ def extract_env_vars():
 
 @app.route('/api/compose/apply', methods=['POST'])
 def apply_compose():
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
     try:
         data = request.json
         if not data or 'file' not in data:
@@ -2969,8 +2967,6 @@ def create_network():
 @app.route('/api/compose/stop', methods=['POST'])
 def stop_compose():
     """Stop compose services"""
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
     try:
         data = request.json
         if not data or 'file' not in data:
