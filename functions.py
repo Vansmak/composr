@@ -790,7 +790,12 @@ def extract_env_from_compose(compose_file_path, modify_compose=False, logger=Non
         return None, False
 
 _NAME_CONFLICT_RE = re.compile(r'container name "/?([^"]+)" is already in use by container "([0-9a-f]+)"')
+# Two distinct daemon message formats for "this port is taken", verified live:
+# one when another Docker container already holds it, a different one when a
+# non-Docker process does (the exact "address already in use" case the
+# port-conflict pre-check's advisory framing calls out as invisible to it).
 _PORT_CONFLICT_RE = re.compile(r'Bind for (?:[\d.]+|::):(\d+) failed: port is already allocated')
+_PORT_CONFLICT_HOST_PROCESS_RE = re.compile(r'failed to bind host port for [\d.]+:(\d+):.+?/tcp: address already in use')
 _NETWORK_MISSING_RE = re.compile(r'network ([^\s]+) declared as external, but could not be found')
 _IMAGE_NOT_FOUND_RE = re.compile(r'pull access denied for ([^\s,]+)|manifest .* not found|repository does not exist')
 _YAML_PYYAML_RE = re.compile(r'line (\d+), column (\d+)')
@@ -811,6 +816,145 @@ def find_container_holding_port(host_client, port):
     except Exception:
         pass
     return None
+
+
+# --- Pre-deploy port-conflict check and resolution (Commit 4) ---
+
+def get_host_port_map(host_client):
+    """Map of host_port (str) -> container, for every currently published
+    port on this host. Used both to detect conflicts and to know which ports
+    are free when suggesting an alternative."""
+    port_map = {}
+    try:
+        for container in host_client.containers.list(all=True):
+            ports = (container.attrs.get('NetworkSettings', {}) or {}).get('Ports', {}) or {}
+            for bindings in ports.values():
+                for binding in (bindings or []):
+                    host_port = binding.get('HostPort')
+                    if host_port:
+                        port_map[host_port] = container
+    except Exception:
+        pass
+    return port_map
+
+
+def suggest_free_port(desired_port, used_ports, max_tries=20):
+    """Nearest available port at or after desired_port, skipping anything in
+    used_ports. Returns None if nothing found within max_tries (in practice
+    always finds one long before that)."""
+    try:
+        base = int(desired_port)
+    except (TypeError, ValueError):
+        return None
+    for offset in range(max_tries):
+        candidate = base + offset
+        if candidate > 65535:
+            break
+        if str(candidate) not in used_ports:
+            return str(candidate)
+    return None
+
+
+def compute_desired_active_services(compose_path, selected_profiles):
+    """Which services will actually run: core + any service in a selected
+    profile. selected_profiles=None means every service (the legacy
+    full-file deploy, which has no profile concept to filter by)."""
+    stack = get_stack_profiles(compose_path)
+    if selected_profiles is None:
+        return set(stack['core']) | {s for services in stack['profiles'].values() for s in services}
+    desired = set(stack['core'])
+    for name, services in stack['profiles'].items():
+        if name in selected_profiles:
+            desired.update(services)
+    return desired
+
+
+def check_deploy_port_conflicts(compose_path, project_name, services_to_deploy, target_host_client):
+    """Before deploying, check whether any host port a service-about-to-start
+    uses is already published by ANOTHER container on the target host.
+    Excludes the deploying service's own current container - redeploying a
+    service onto the port it's already using isn't a real conflict, same
+    false-positive fix as the Commit 2 move-preview port check. Returns a
+    list of {service, port, container_name, container_id, suggested_port}
+    dicts (empty if none)."""
+    try:
+        with open(compose_path, 'r') as f:
+            compose_data = yaml.safe_load(f) or {}
+    except Exception:
+        return []
+    all_services = compose_data.get('services') or {}
+
+    port_map = get_host_port_map(target_host_client)
+
+    conflicts = []
+    for service_name in services_to_deploy:
+        cfg = all_services.get(service_name) or {}
+        for p in (cfg.get('ports') or []):
+            if not (isinstance(p, str) and ':' in p):
+                continue
+            host_port = p.split(':')[0].strip('"').strip("'")
+            holder = port_map.get(host_port)
+            if not holder:
+                continue
+            holder_labels = holder.labels or {}
+            is_self = (holder_labels.get('com.docker.compose.project') == project_name
+                       and holder_labels.get('com.docker.compose.service') == service_name)
+            if is_self:
+                continue
+            conflicts.append({
+                'service': service_name,
+                'port': host_port,
+                'container_name': holder.name,
+                'container_id': holder.id,
+                'suggested_port': suggest_free_port(host_port, set(port_map.keys())),
+            })
+    return conflicts
+
+
+def find_port_mapping_line(file_path, service_name, host_port):
+    """Find the exact line index of a service's ports: list entry whose host
+    port matches host_port. Returns the line index or None."""
+    block = find_service_block(file_path, service_name)
+    if not block:
+        return None
+    start, end = block
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
+    port_line_re = re.compile(r'^\s*-\s*(["\']?)(\d+)(["\']?):')
+    for i in range(start, end + 1):
+        m = port_line_re.match(lines[i])
+        if m and m.group(2) == str(host_port):
+            return i
+    return None
+
+
+def change_service_port(file_path, service_name, old_port, new_port, logger):
+    """Change exactly one host-port in a service's ports: mapping - a
+    single-line text edit, preserving quoting style and the container-port
+    side untouched. Atomic write, validated. Returns (success, message,
+    unified single-line diff string or None)."""
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
+
+    line_idx = find_port_mapping_line(file_path, service_name, old_port)
+    if line_idx is None:
+        return False, f'Could not find port mapping {old_port} for service {service_name}', None
+
+    old_line = lines[line_idx]
+    line_re = re.compile(r'^(\s*-\s*)(["\']?)(\d+)(["\']?)(:.*)$')
+    m = line_re.match(old_line.rstrip('\n'))
+    if not m:
+        return False, f'Could not parse port mapping line for {service_name}', None
+    prefix, quote_open, _, quote_close, rest = m.groups()
+    trailing_newline = '\n' if old_line.endswith('\n') else ''
+    new_line = f"{prefix}{quote_open}{new_port}{quote_close}{rest}{trailing_newline}"
+
+    new_lines = list(lines)
+    new_lines[line_idx] = new_line
+
+    ok, msg = _atomic_write_validated(file_path, new_lines, logger)
+    diff_text = f"- {old_line.rstrip(chr(10))}\n+ {new_line.rstrip(chr(10))}"
+    return ok, msg, diff_text
 
 
 def diagnose_docker_failure(raw_text, logger, host_client=None, host_name='local'):
@@ -845,7 +989,7 @@ def diagnose_docker_failure(raw_text, logger, host_client=None, host_name='local
             }
         }
 
-    match = _PORT_CONFLICT_RE.search(raw_text)
+    match = _PORT_CONFLICT_RE.search(raw_text) or _PORT_CONFLICT_HOST_PROCESS_RE.search(raw_text)
     if match:
         port = match.group(1)
         holder = find_container_holding_port(host_client, port) if host_client else None
@@ -853,6 +997,8 @@ def diagnose_docker_failure(raw_text, logger, host_client=None, host_name='local
             return {
                 'pattern': 'port_conflict',
                 'summary': f'Port {port} is already in use by container "{holder.name}".',
+                'port': port,
+                'container_name': holder.name,
                 'fix': {
                     'action': 'stop_container',
                     'label': f'Stop "{holder.name}" (using port {port})',
@@ -862,6 +1008,8 @@ def diagnose_docker_failure(raw_text, logger, host_client=None, host_name='local
         return {
             'pattern': 'port_conflict',
             'summary': f'Port {port} is already in use (not by a Docker container Composr can identify on {host_name} - check for a host process).',
+            'port': port,
+            'container_name': None,
             'fix': None
         }
 

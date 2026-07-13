@@ -2974,6 +2974,8 @@ function deployStackToHost(composeFile, stackName, host, profiles) {
             refreshContainers();
         } else if (result.error_type === 'host_offline') {
             showHostOfflineDialog(result, composeFile, stackName, profiles);
+        } else if (result.error_type === 'port_conflict') {
+            showPortConflictDialog(result, composeFile, stackName, host, profiles);
         } else {
             showPersistentResult('Deploy', result, stackName, () => deployStackToHost(composeFile, stackName, host, profiles));
         }
@@ -2982,6 +2984,129 @@ function deployStackToHost(composeFile, stackName, host, profiles) {
         setLoading(false);
         showMessage('error', `Failed to deploy ${stackName}: ${error.message}`);
     });
+}
+
+// Port-conflict resolution dialog: change the port (only possible when the
+// conflict was caught proactively and we know which service it belongs to),
+// deploy to a different connected+compatible host, or cancel. Also reached
+// reactively when 'up' still fails with a port conflict despite passing the
+// pre-check (a native process or network_mode:host listener - invisible to
+// the pre-check, which only sees Docker-published ports).
+//
+// Context is stashed in a module-level variable rather than threaded through
+// onclick attribute strings (which would need JSON-in-HTML-attribute
+// escaping for the profiles array) - same single-slot pattern as
+// _pendingRetry elsewhere in this file.
+let _portConflictContext = null;
+
+function showPortConflictDialog(errorResult, composeFile, stackName, host, profiles) {
+    _portConflictContext = { composeFile, stackName, host, profiles };
+    const conflicts = errorResult.conflicts || [];
+
+    const conflictRows = conflicts.map((c, i) => {
+        const heldBy = c.container_name ? `container "${c.container_name}"` : 'a process Composr can\'t identify (not a Docker container)';
+        const canChangePort = !!c.service && !!c.suggested_port;
+        return `
+            <div style="padding:0.6rem; border:1px solid var(--border-color); border-radius:6px; margin-bottom:0.5rem;">
+                <p style="margin:0 0 0.5rem 0;">Port <strong>${c.port}</strong> is in use by ${heldBy} on <strong>${host}</strong>.</p>
+                ${canChangePort ? `
+                    <button class="btn btn-primary btn-sm change-port-btn"
+                            data-service="${c.service}" data-old-port="${c.port}" data-new-port="${c.suggested_port}">
+                        Change port to ${c.suggested_port} & Retry
+                    </button>
+                ` : '<p style="font-size:0.8rem; color: var(--text-secondary); margin:0;">Can\'t auto-suggest a port edit for this one - edit the compose file directly if needed.</p>'}
+            </div>
+        `;
+    }).join('');
+
+    const modal = document.createElement('div');
+    modal.className = 'logs-modal';
+    modal.innerHTML = `
+        <div class="modal-header">
+            <h3>⚠ Port Conflict</h3>
+            <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
+        </div>
+        <div class="modal-content" style="padding: 1rem;">
+            ${conflictRows}
+            <div id="port-conflict-hosts"></div>
+            <p style="font-size:0.75rem; color: var(--text-secondary); margin-top:0.75rem;">
+                This only sees Docker-published ports - a native process or network_mode:host listener on the target isn't visible until the deploy actually fails.
+            </p>
+            <button class="btn btn-error" style="margin-top:0.5rem;" onclick="this.closest('.logs-modal').remove()">Cancel</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.querySelectorAll('.change-port-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            applyPortChangeAndRetry(btn.dataset.service, btn.dataset.oldPort, btn.dataset.newPort);
+        });
+    });
+
+    // Populate "deploy elsewhere" candidates for the first conflicting port
+    const firstPort = conflicts[0]?.port;
+    if (firstPort) {
+        fetch(`/api/hosts/deploy-candidates?exclude_host=${encodeURIComponent(host)}&port=${encodeURIComponent(firstPort)}`)
+            .then(r => r.json())
+            .then(data => {
+                const candidates = data.candidates || [];
+                const container = modal.querySelector('#port-conflict-hosts');
+                if (!candidates.length) {
+                    container.innerHTML = '<p style="font-size:0.85rem; color: var(--text-secondary);">No other connected hosts free of this conflict.</p>';
+                    return;
+                }
+                container.innerHTML = `
+                    <div style="margin-top:0.5rem;">
+                        <label>Or deploy this stack elsewhere:</label>
+                        <select id="port-conflict-host-select" class="filter-select" style="width:100%; margin-top:0.25rem;">
+                            ${candidates.map(c => `<option value="${c.host}">${c.host}${c.arch_warning ? ` (${c.arch_warning})` : ''}</option>`).join('')}
+                        </select>
+                        <button class="btn btn-secondary" id="deploy-elsewhere-btn" style="margin-top:0.5rem; width:100%;">
+                            Deploy to Selected Host
+                        </button>
+                    </div>
+                `;
+                container.querySelector('#deploy-elsewhere-btn').addEventListener('click', deployElsewhereFromConflict);
+            })
+            .catch(() => {
+                modal.querySelector('#port-conflict-hosts').innerHTML = '';
+            });
+    }
+}
+
+function applyPortChangeAndRetry(service, oldPort, newPort) {
+    const ctx = _portConflictContext;
+    if (!ctx) return;
+
+    setLoading(true, `Changing port for ${service}…`);
+    fetch('/api/service/change-port', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: ctx.composeFile, service, old_port: oldPort, new_port: newPort })
+    })
+    .then(r => r.json())
+    .then(result => {
+        setLoading(false);
+        if (result.status !== 'success') {
+            showMessage('error', result.message);
+            return;
+        }
+        document.querySelectorAll('.logs-modal').forEach(m => m.remove());
+        deployStackToHost(ctx.composeFile, ctx.stackName, ctx.host, ctx.profiles);
+    })
+    .catch(error => {
+        setLoading(false);
+        showMessage('error', `Failed to change port: ${error.message}`);
+    });
+}
+
+function deployElsewhereFromConflict() {
+    const ctx = _portConflictContext;
+    const select = document.getElementById('port-conflict-host-select');
+    if (!ctx || !select) return;
+    const chosenHost = select.value;
+    document.querySelectorAll('.logs-modal').forEach(m => m.remove());
+    deployStackToHost(ctx.composeFile, ctx.stackName, chosenHost, ctx.profiles);
 }
 
 // The no-silent-fallback hard rule's UI counterpart: a deploy targeting an

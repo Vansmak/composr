@@ -22,7 +22,9 @@ from functions import (
     extract_env_from_compose, calculate_uptime, find_caddy_container, get_compose_files_cached,
     is_path_within_allowed_dirs, get_stack_profiles, find_service_block, set_service_inactive,
     compute_profile_deselection_diff, infer_active_profiles, compute_service_move,
-    commit_service_move, compute_move_confirm_token, find_container_holding_port
+    commit_service_move, compute_move_confirm_token, find_container_holding_port,
+    diagnose_docker_failure, check_deploy_port_conflicts, compute_desired_active_services,
+    change_service_port, get_host_port_map, suggest_free_port
 )
 
 
@@ -2393,6 +2395,25 @@ def apply_compose():
             logger.info(f"Setting DOCKER_HOST={docker_url} for {deploy_host} - bind-mount paths in this "
                         f"file are interpreted on {deploy_host}'s filesystem, and images are pulled by {deploy_host}")
 
+        # Proactive port-conflict pre-check, before any subprocess call: parse
+        # host ports from the services about to actually start and compare
+        # against everything already published on the target host.
+        target_host_client = host_manager.get_client(deploy_host)
+        if target_host_client:
+            services_to_deploy = compute_desired_active_services(full_path, profiles)
+            conflicts = check_deploy_port_conflicts(full_path, project_name, services_to_deploy, target_host_client)
+            if conflicts:
+                logger.warning(f"Port conflict(s) on {deploy_host} for {project_name}: {conflicts}")
+                return jsonify({
+                    'status': 'error',
+                    'error_type': 'port_conflict',
+                    'host': deploy_host,
+                    'conflicts': conflicts,
+                    'message': f"Port conflict on {deploy_host}: " + '; '.join(
+                        f"{c['port']} used by {c['container_name']}" for c in conflicts
+                    )
+                })
+
         # Prepare the command logging handler
         def log_command(cmd, cwd):
             cmd_str = ' '.join(cmd)
@@ -2477,7 +2498,37 @@ def apply_compose():
             logger.info(f"Up completed: {result.stdout}")
         except subprocess.CalledProcessError as e:
             logger.error(f"Up failed: {e.stderr}")
-            return jsonify({'status': 'error', 'message': f'Failed to start containers: {e.stderr}'})
+            # The pre-check above only sees Docker-published ports - a native
+            # process or a network_mode:host listener is invisible to it. If
+            # 'up' still fails with a port conflict despite passing the
+            # pre-check, classify it and surface it into the SAME dialog
+            # shape the frontend already knows how to render, rather than a
+            # raw failure toast.
+            diagnosis = diagnose_docker_failure(e.stderr, logger, host_client=target_host_client, host_name=deploy_host)
+            if diagnosis and diagnosis.get('pattern') == 'port_conflict':
+                conflict_port = diagnosis.get('port')
+                suggested_port = None
+                if target_host_client and conflict_port:
+                    # The port that just failed is known-taken even though it
+                    # wasn't Docker-visible (that's the whole reason this is
+                    # the reactive fallback) - exclude it explicitly, since
+                    # get_host_port_map alone wouldn't know to skip it.
+                    used_ports = set(get_host_port_map(target_host_client).keys()) | {conflict_port}
+                    suggested_port = suggest_free_port(conflict_port, used_ports)
+                return jsonify({
+                    'status': 'error',
+                    'error_type': 'port_conflict',
+                    'host': deploy_host,
+                    'conflicts': [{
+                        'service': None,
+                        'port': conflict_port,
+                        'container_name': diagnosis.get('container_name'),
+                        'container_id': (diagnosis.get('fix') or {}).get('params', {}).get('id'),
+                        'suggested_port': suggested_port
+                    }],
+                    'message': diagnosis['summary']
+                })
+            return jsonify({'status': 'error', 'message': f'Failed to start containers: {e.stderr}', 'diagnosis': diagnosis})
 
         if profiles is not None:
             _persist_stack_profiles(project_name, profiles)
@@ -2588,6 +2639,85 @@ def set_service_inactive_endpoint():
         return jsonify({'status': 'error', 'message': str(e)})
 
 
+@app.route('/api/service/change-port', methods=['POST'])
+def change_service_port_endpoint():
+    """Apply the "CHANGE PORT" resolution from the port-conflict dialog: a
+    single-line edit of one service's host-port mapping. The frontend already
+    showed the before/after to the user via the conflict response's
+    suggested_port before calling this."""
+    try:
+        data = request.json or {}
+        compose_file = data.get('file')
+        service = data.get('service')
+        old_port = str(data.get('old_port', '')).strip()
+        new_port = str(data.get('new_port', '')).strip()
+
+        if not compose_file or not service or not old_port or not new_port:
+            return jsonify({'status': 'error', 'message': 'file, service, old_port, and new_port are required'})
+
+        full_path = resolve_compose_file_path(compose_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if not full_path or not os.path.exists(full_path):
+            return jsonify({'status': 'error', 'message': f'Compose file {compose_file} not found'})
+
+        ok, message, diff_text = change_service_port(full_path, service, old_port, new_port, logger)
+        return jsonify({'status': 'success' if ok else 'error', 'message': message, 'diff': diff_text})
+    except Exception as e:
+        logger.error(f"Failed to change service port: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@app.route('/api/hosts/deploy-candidates')
+def get_deploy_candidates():
+    """Connected hosts other than the one that just hit a port conflict,
+    for the "DEPLOY TO <other host>" resolution option - excludes any host
+    that holds the same port (not a real alternative) and labels one whose
+    architecture differs from the original target (still offered, never
+    hidden - just an advisory that the image needs to support it, since a
+    tag can be multi-arch and we can't know for certain without a registry
+    lookup this doesn't attempt)."""
+    try:
+        exclude_host = request.args.get('exclude_host', '')
+        port = request.args.get('port', '')
+
+        hosts_status = host_manager.get_hosts_status()
+        original_client = host_manager.get_client(exclude_host) if exclude_host else None
+        original_arch = None
+        if original_client:
+            try:
+                original_arch = original_client.info().get('Architecture')
+            except Exception:
+                pass
+
+        candidates = []
+        for host_name, info in hosts_status.items():
+            if host_name == exclude_host or not info.get('connected'):
+                continue
+            client = host_manager.get_client(host_name)
+            if not client:
+                continue
+
+            if port:
+                holder = find_container_holding_port(client, port)
+                if holder:
+                    continue  # same conflict here too - not a valid alternative
+
+            arch = None
+            arch_warning = None
+            try:
+                arch = client.info().get('Architecture')
+                if original_arch and arch and arch != original_arch:
+                    arch_warning = f'target is {arch} - image must support it'
+            except Exception:
+                arch_warning = 'architecture unknown'
+
+            candidates.append({'host': host_name, 'architecture': arch, 'arch_warning': arch_warning})
+
+        return jsonify({'status': 'success', 'candidates': candidates})
+    except Exception as e:
+        logger.error(f"Failed to get deploy candidates: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
 def _resolve_compose_path_for_target(file_path):
     """Resolve a move's target compose file - may already exist, or may be a
     path that doesn't exist yet (a fresh file to create), mirroring how
@@ -2679,7 +2809,9 @@ def preview_service_move():
 def _redeploy_moved_service(source_project, service, target_path):
     """Stop+remove the old container via the Docker API directly - docker-compose
     can't target it by service name anymore, since that service's definition is
-    already gone from the source file - then 'up -d' it in its new home."""
+    already gone from the source file - then 'up -d' it in its new home.
+    Local only, matching Commit 2's scope - the target file's own deploy_host
+    (Commit 3) applies on its next apply_compose deploy, not this direct call."""
     import subprocess
     try:
         host_client = host_manager.get_client('local')
@@ -2699,13 +2831,35 @@ def _redeploy_moved_service(source_project, service, target_path):
 
         target_dir = os.path.dirname(target_path)
         target_filename = os.path.basename(target_path)
+
+        # Same proactive port-conflict pre-check as apply_compose ("before any
+        # deploy" per Commit 4) - the old container above is already gone by
+        # this point, so no self-conflict exclusion is needed here.
+        if host_client:
+            with open(target_path, 'r') as f:
+                import yaml
+                target_data = yaml.safe_load(f) or {}
+            target_project = target_data.get('name', os.path.basename(target_dir))
+            conflicts = check_deploy_port_conflicts(target_path, target_project, {service}, host_client)
+            if conflicts:
+                return {
+                    'success': False,
+                    'error_type': 'port_conflict',
+                    'host': 'local',
+                    'conflicts': conflicts,
+                    'message': f"Port conflict on local: " + '; '.join(
+                        f"{c['port']} used by {c['container_name']}" for c in conflicts
+                    )
+                }
+
         env = os.environ.copy()
         result = subprocess.run(
             ["docker-compose", "-f", target_filename, "up", "-d", service],
             cwd=target_dir, env=env, text=True, capture_output=True, timeout=300
         )
         if result.returncode != 0:
-            return {'success': False, 'message': f'Failed to deploy on new file: {result.stderr}'}
+            diagnosis = diagnose_docker_failure(result.stderr, logger, host_client=host_client, host_name='local')
+            return {'success': False, 'message': f'Failed to deploy on new file: {result.stderr}', 'diagnosis': diagnosis}
         return {'success': True, 'message': f'{service} deployed in its new location'}
     except Exception as e:
         logger.error(f"Failed to redeploy moved service {service}: {e}")
