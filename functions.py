@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import stat
 import tempfile
 import datetime
 import difflib
@@ -411,10 +412,12 @@ def _atomic_write_validated(file_path, new_lines, logger):
     """
     file_existed = os.path.exists(file_path)
     original_content = None
+    original_mode = None
     if file_existed:
         try:
             with open(file_path, 'r') as f:
                 original_content = f.read()
+            original_mode = os.stat(file_path).st_mode
         except Exception as e:
             return False, f'Could not read original file: {e}'
 
@@ -431,6 +434,14 @@ def _atomic_write_validated(file_path, new_lines, logger):
 
         with open(tmp_path, 'r') as f:
             yaml.safe_load(f)  # validate before committing - never write invalid YAML
+
+        # tempfile.mkstemp() creates files mode 0600 (owner-only) regardless
+        # of the original file's permissions - os.replace() keeps that mode
+        # rather than inheriting the path it's replacing, so without this the
+        # file becomes unreadable by anyone but whoever this process runs as
+        # (often root in a container) the moment it's edited even once.
+        if original_mode is not None:
+            os.chmod(tmp_path, stat.S_IMODE(original_mode))
 
         if file_existed:
             with open(file_path + '.bak', 'w') as f:

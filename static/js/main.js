@@ -1906,6 +1906,13 @@ function togglePopupServiceProfile(composeFile, composeProject, composeService, 
 
 // "Move to stack…" - pick a target compose file for this service.
 function showMoveServiceDialog(composeFile, composeService, host) {
+    // Closes the container popup this is launched from - previewServiceMove
+    // and commitServiceMove both look up their modal via a bare
+    // document.querySelector('.logs-modal'), which is ambiguous (grabs
+    // whichever .logs-modal is first in the DOM) if the popup is still open
+    // underneath this one.
+    document.querySelectorAll('.logs-modal').forEach(m => m.remove());
+
     fetch('/api/compose/files')
         .then(r => r.json())
         .then(data => {
