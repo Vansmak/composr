@@ -134,63 +134,102 @@ function testHost(hostName, url) {
 function updateHostsDisplay(hosts, currentHost) {
     const container = document.getElementById('hosts-list-content');
     if (!container) return;
-    
+
     container.innerHTML = '';
-    
-    // Group hosts by connection status
+
+    // Group hosts by connection status - a disconnected host marked
+    // expect_offline (e.g. a Windows Docker Desktop PC that isn't always on)
+    // is "paused", not an error: same underlying disconnected state, different
+    // display so it doesn't read as something broken.
     const connectedHosts = [];
     const disconnectedHosts = [];
-    
+    const pausedHosts = [];
+
     Object.entries(hosts).forEach(([hostName, hostInfo]) => {
         if (hostName === 'local') return; // Skip local in the list
         if (!hostInfo) return; // Skip null/undefined host entries
 
         if (hostInfo.connected) {
             connectedHosts.push([hostName, hostInfo]);
+        } else if (hostInfo.expect_offline) {
+            pausedHosts.push([hostName, hostInfo]);
         } else {
             disconnectedHosts.push([hostName, hostInfo]);
         }
     });
-    
+
     // Render connected hosts
     if (connectedHosts.length > 0) {
         const connectedSection = document.createElement('div');
         connectedSection.className = 'host-section';
         connectedSection.innerHTML = '<h5 style="color: var(--accent-success); margin: 1rem 0 0.5rem 0;">🟢 Connected</h5>';
         container.appendChild(connectedSection);
-        
+
         connectedHosts.forEach(([hostName, hostInfo]) => {
             const hostDiv = createHostListItem(hostName, hostInfo, currentHost);
             container.appendChild(hostDiv);
         });
     }
-    
+
+    // Render paused (expected-offline) hosts
+    if (pausedHosts.length > 0) {
+        const pausedSection = document.createElement('div');
+        pausedSection.className = 'host-section';
+        pausedSection.innerHTML = '<h5 style="color: var(--text-secondary); margin: 1rem 0 0.5rem 0;">⏸ Paused (expected offline)</h5>';
+        container.appendChild(pausedSection);
+
+        pausedHosts.forEach(([hostName, hostInfo]) => {
+            const hostDiv = createHostListItem(hostName, hostInfo, currentHost);
+            container.appendChild(hostDiv);
+        });
+    }
+
     // Render disconnected hosts
     if (disconnectedHosts.length > 0) {
         const disconnectedSection = document.createElement('div');
         disconnectedSection.className = 'host-section';
         disconnectedSection.innerHTML = '<h5 style="color: var(--accent-error); margin: 1rem 0 0.5rem 0;">🔴 Disconnected</h5>';
         container.appendChild(disconnectedSection);
-        
+
         disconnectedHosts.forEach(([hostName, hostInfo]) => {
             const hostDiv = createHostListItem(hostName, hostInfo, currentHost);
             container.appendChild(hostDiv);
         });
     }
-    
+
     // Show message if no external hosts
-    if (connectedHosts.length === 0 && disconnectedHosts.length === 0) {
+    if (connectedHosts.length === 0 && disconnectedHosts.length === 0 && pausedHosts.length === 0) {
         container.innerHTML = '<p style="color: var(--text-secondary); font-style: italic;">No external Docker hosts configured. Add a host using the form below.</p>';
     }
+}
+
+// Toggle whether a host is expected to be intermittently offline (display
+// hint only - the no-silent-fallback deploy rule still applies regardless).
+function setHostExpectOffline(hostName, expectOffline) {
+    fetch('/api/hosts/expect-offline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: hostName, expect_offline: expectOffline })
+    })
+    .then(r => r.json())
+    .then(result => {
+        if (result.status === 'success') {
+            loadHostsManagement();
+        } else {
+            showMessage('error', result.message);
+        }
+    })
+    .catch(error => showMessage('error', `Failed to update host: ${error.message}`));
 }
 
 // Create a host list item
 function createHostListItem(hostName, hostInfo, currentHost) {
     const hostDiv = document.createElement('div');
-    hostDiv.className = `host-item ${hostInfo.connected ? 'connected' : 'disconnected'}`;
-    
-    const statusIcon = hostInfo.connected ? '🟢' : '🔴';
-    
+    const isPaused = !hostInfo.connected && hostInfo.expect_offline;
+    hostDiv.className = `host-item ${hostInfo.connected ? 'connected' : (isPaused ? 'paused' : 'disconnected')}`;
+
+    const statusIcon = hostInfo.connected ? '🟢' : (isPaused ? '⏸' : '🔴');
+
     hostDiv.innerHTML = `
         <div class="host-info">
             <div class="host-header">
@@ -202,6 +241,8 @@ function createHostListItem(hostName, hostInfo, currentHost) {
                 ${hostInfo.connected ? `
                     <span class="host-type">tcp</span>
                     <span class="last-check">Last check: ${formatLastCheck(hostInfo.last_check)}</span>
+                ` : isPaused ? `
+                    <span class="host-error" style="color: var(--text-secondary);">Not connected (expected)</span>
                 ` : `
                     <span class="host-error">Connection failed</span>
                 `}
@@ -214,10 +255,15 @@ function createHostListItem(hostName, hostInfo, currentHost) {
             ` : `
                 <button class="btn btn-secondary btn-sm" onclick="testHost('${hostName}', '${hostInfo.url}')">Reconnect</button>
             `}
+            <label style="display:flex; align-items:center; gap:0.35rem; font-size:0.8rem; color: var(--text-secondary); margin: 0 0.5rem;">
+                <input type="checkbox" ${hostInfo.expect_offline ? 'checked' : ''}
+                       onchange="setHostExpectOffline('${hostName}', this.checked)">
+                Intermittent (e.g. not always on)
+            </label>
             <button class="btn btn-error btn-sm" onclick="removeHost('${hostName}')">Remove</button>
         </div>
     `;
-    
+
     return hostDiv;
 }
 

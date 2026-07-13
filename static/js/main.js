@@ -2860,6 +2860,9 @@ function loadStackProfiles(modal, stackName, composeFile, hostName) {
 
             const profileNames = Object.keys(data.profiles || {});
             const alwaysOn = (data.core || []).join(', ') || 'none';
+            const deployHost = data.deploy_host || 'local';
+            const availableHosts = data.available_hosts || ['local'];
+            const isRemote = deployHost !== 'local';
 
             const chips = profileNames.map(name => {
                 const isActive = (data.active_profiles || []).includes(name);
@@ -2872,8 +2875,26 @@ function loadStackProfiles(modal, stackName, composeFile, hostName) {
                 `;
             }).join('');
 
+            const hostOptions = availableHosts.map(h =>
+                `<option value="${h}" ${h === deployHost ? 'selected' : ''}>${h}</option>`
+            ).join('');
+
             container.innerHTML = `
-                <div class="stack-profiles-section" style="margin-bottom:1rem; padding:0.75rem; background:rgba(128,128,128,0.08); border-radius:6px;">
+                <div class="stack-profiles-section" style="margin-bottom:1rem; padding:0.75rem; background:rgba(128,128,128,0.08); border-radius:6px;"
+                     data-source-file="${composeFile}" data-stack-name="${stackName}" data-deploy-host="${deployHost}">
+                    <h4 style="margin:0 0 0.5rem 0;">Host</h4>
+                    <select class="filter-select stack-host-select" style="width:100%; margin-bottom:0.5rem;"
+                            onchange="onStackHostChanged(this)">
+                        ${hostOptions}
+                    </select>
+                    ${isRemote ? `
+                        <div style="padding:0.6rem; background:rgba(255,193,7,0.15); border:1px solid #ffc107; border-radius:6px; font-size:0.8rem; margin-bottom:0.75rem;">
+                            Bind-mount paths in this file are interpreted on <strong>${deployHost}</strong>'s filesystem, and images
+                            are pulled by <strong>${deployHost}</strong>. Named volumes are recommended over bind mounts for remote stacks.
+                            ${!data.deploy_host_connected ? `<br><strong style="color:#dc3545;">⚠ ${deployHost} is currently offline.</strong>` : ''}
+                        </div>
+                    ` : ''}
+
                     <h4 style="margin:0 0 0.5rem 0;">Profiles</h4>
                     <div style="font-size:0.85rem; color: var(--text-secondary); margin-bottom:0.5rem;">
                         <strong>Always on:</strong> ${alwaysOn}
@@ -2882,10 +2903,10 @@ function loadStackProfiles(modal, stackName, composeFile, hostName) {
                         <div class="profile-toggle-list" style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
                             ${chips}
                         </div>
-                        <button class="btn btn-success btn-sm" onclick="deployStackProfiles(this, '${composeFile}', '${stackName}', '${hostName}')">
-                            Deploy Selected Profiles
-                        </button>
-                    ` : `<p style="font-size:0.85rem; color: var(--text-secondary); font-style: italic; margin:0;">No optional profiles defined for this stack.</p>`}
+                    ` : `<p style="font-size:0.85rem; color: var(--text-secondary); font-style: italic; margin:0 0 0.5rem 0;">No optional profiles defined for this stack.</p>`}
+                    <button class="btn btn-success btn-sm" onclick="deployStackProfiles(this, '${composeFile}', '${stackName}')">
+                        Deploy
+                    </button>
                 </div>
             `;
         })
@@ -2895,33 +2916,127 @@ function loadStackProfiles(modal, stackName, composeFile, hostName) {
         });
 }
 
-// Deploy the profile selection currently checked in the stack modal.
-function deployStackProfiles(buttonEl, composeFile, stackName, hostName) {
-    const section = buttonEl.closest('.stack-profiles-section');
+// Changing the Host attribute IS the action (per the properties-panel design) -
+// confirm, then redeploy the stack's current profile selection to the new host.
+function onStackHostChanged(selectEl) {
+    const section = selectEl.closest('.stack-profiles-section');
+    const composeFile = section.dataset.sourceFile;
+    const stackName = section.dataset.stackName;
+    const newHost = selectEl.value;
     const selected = Array.from(section.querySelectorAll('input[data-profile]:checked'))
         .map(input => input.dataset.profile);
 
-    setLoading(true, `Deploying ${stackName}...`);
+    if (!confirm(`Move "${stackName}" to run on "${newHost}"? This stops it wherever it's currently running and redeploys it there.`)) {
+        loadStackProfiles(selectEl.closest('.logs-modal'), stackName, composeFile, section.dataset.deployHost);
+        return;
+    }
+
+    fetch('/api/stack/deploy-host', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: stackName, host: newHost })
+    })
+    .then(r => r.json())
+    .then(result => {
+        if (result.status !== 'success') {
+            showMessage('error', result.message);
+            return;
+        }
+        deployStackToHost(composeFile, stackName, newHost, selected);
+    })
+    .catch(error => showMessage('error', `Failed to set deploy host: ${error.message}`));
+}
+
+// Deploy the profile selection currently checked in the stack modal, to
+// whatever host is currently selected in the modal's Host dropdown.
+function deployStackProfiles(buttonEl, composeFile, stackName) {
+    const section = buttonEl.closest('.stack-profiles-section');
+    const hostSelect = section.querySelector('.stack-host-select');
+    const host = hostSelect ? hostSelect.value : 'local';
+    const selected = Array.from(section.querySelectorAll('input[data-profile]:checked'))
+        .map(input => input.dataset.profile);
+    deployStackToHost(composeFile, stackName, host, selected);
+}
+
+function deployStackToHost(composeFile, stackName, host, profiles) {
+    setLoading(true, `Deploying ${stackName} to ${host}…`);
     fetch('/api/compose/apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file: composeFile, profiles: selected, pull: false })
+        body: JSON.stringify({ file: composeFile, profiles, host, pull: false })
     })
     .then(response => response.json())
     .then(result => {
         setLoading(false);
         if (result.status === 'success') {
-            showMessage('success', `${stackName} deployed with profiles: ${selected.length ? selected.join(', ') : 'none (core only)'}`);
+            showMessage('success', `${stackName} deployed on ${host} with profiles: ${profiles.length ? profiles.join(', ') : 'none (core only)'}`);
             document.querySelectorAll('.logs-modal').forEach(m => m.remove());
             refreshContainers();
+        } else if (result.error_type === 'host_offline') {
+            showHostOfflineDialog(result, composeFile, stackName, profiles);
         } else {
-            showPersistentResult('Deploy', result, stackName, () => deployStackProfiles(buttonEl, composeFile, stackName, hostName));
+            showPersistentResult('Deploy', result, stackName, () => deployStackToHost(composeFile, stackName, host, profiles));
         }
     })
     .catch(error => {
         setLoading(false);
         showMessage('error', `Failed to deploy ${stackName}: ${error.message}`);
     });
+}
+
+// The no-silent-fallback hard rule's UI counterpart: a deploy targeting an
+// offline host never quietly lands on local - the user explicitly picks
+// retry, a different (connected) host, or cancel.
+function showHostOfflineDialog(errorResult, composeFile, stackName, profiles) {
+    fetch('/api/hosts')
+        .then(r => r.json())
+        .then(data => {
+            const connectedHosts = Object.entries(data.hosts || {})
+                .filter(([name, info]) => info.connected && name !== errorResult.host)
+                .map(([name]) => name);
+
+            const modal = document.createElement('div');
+            modal.className = 'logs-modal';
+            modal.innerHTML = `
+                <div class="modal-header">
+                    <h3>⚠ Host Offline</h3>
+                    <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
+                </div>
+                <div class="modal-content" style="padding: 1rem;">
+                    <p>${errorResult.message}</p>
+                    <div class="actions" style="display:flex; flex-direction:column; gap:0.5rem; margin-top:1rem;">
+                        <button class="btn btn-primary" id="offline-retry-btn">Retry ${errorResult.host}</button>
+                        ${connectedHosts.length ? `
+                            <div>
+                                <label>Temporarily deploy elsewhere instead:</label>
+                                <select id="offline-fallback-host" class="filter-select" style="width:100%; margin-top:0.25rem;">
+                                    ${connectedHosts.map(h => `<option value="${h}">${h}</option>`).join('')}
+                                </select>
+                                <button class="btn btn-secondary" id="offline-fallback-btn" style="margin-top:0.5rem; width:100%;">
+                                    Deploy to Selected Host
+                                </button>
+                            </div>
+                        ` : '<p style="font-size:0.85rem; color: var(--text-secondary);">No other connected hosts available.</p>'}
+                        <button class="btn btn-error" onclick="this.closest('.logs-modal').remove()">Cancel</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            modal.querySelector('#offline-retry-btn').addEventListener('click', () => {
+                modal.remove();
+                deployStackToHost(composeFile, stackName, errorResult.host, profiles);
+            });
+            const fallbackBtn = modal.querySelector('#offline-fallback-btn');
+            if (fallbackBtn) {
+                fallbackBtn.addEventListener('click', () => {
+                    const chosenHost = modal.querySelector('#offline-fallback-host').value;
+                    modal.remove();
+                    deployStackToHost(composeFile, stackName, chosenHost, profiles);
+                });
+            }
+        })
+        .catch(error => showMessage('error', `Failed to load hosts: ${error.message}`));
 }
 
 // 2. Add new compose action function that handles host

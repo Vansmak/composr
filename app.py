@@ -869,6 +869,25 @@ def remove_docker_host():
         logger.error(f"Failed to remove Docker host: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
+@app.route('/api/hosts/expect-offline', methods=['POST'])
+def set_host_expect_offline():
+    """Mark a host as intermittently offline by design (e.g. a Windows Docker
+    Desktop PC that isn't always on) - display hint only, does not relax the
+    no-silent-fallback deploy rule for that host."""
+    try:
+        data = request.json or {}
+        name = data.get('name')
+        expect_offline = data.get('expect_offline', False)
+
+        if not name:
+            return jsonify({'status': 'error', 'message': 'Host name is required'})
+
+        success, message = host_manager.set_expect_offline(name, expect_offline)
+        return jsonify({'status': 'success' if success else 'error', 'message': message})
+    except Exception as e:
+        logger.error(f"Failed to set expect_offline for host: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
 @app.route('/api/hosts/test', methods=['POST'])
 def test_docker_host():
     """Test connection to a Docker host"""
@@ -2297,6 +2316,13 @@ def _persist_stack_profiles(project_name, profiles):
     save_container_metadata(metadata, CONTAINER_METADATA_FILE, logger)
 
 
+def _persist_stack_deploy_host(project_name, host):
+    metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
+    key = f"_stack:{project_name}"
+    metadata.setdefault(key, {})['deploy_host'] = host
+    save_container_metadata(metadata, CONTAINER_METADATA_FILE, logger)
+
+
 @app.route('/api/compose/apply', methods=['POST'])
 def apply_compose():
     try:
@@ -2311,8 +2337,6 @@ def apply_compose():
         # to the profile-aware path below.
         profiles = data.get('profiles')
 
-        logger.info(f"Applying compose restart on file {compose_file}, pull={pull}, profiles={profiles}")
-
         # Resolve the compose file path
         full_path = resolve_compose_file_path(compose_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
         if not full_path or not os.path.exists(full_path):
@@ -2323,20 +2347,51 @@ def apply_compose():
         compose_dir = os.path.dirname(full_path)
         compose_filename = os.path.basename(full_path)
 
-        # Use subprocess to run docker-compose commands
-        import subprocess
-
-        # Environment setup
-        env = os.environ.copy()
-
         # First, check if the compose file has a "name:" property
         with open(full_path, 'r') as f:
             import yaml
             compose_data = yaml.safe_load(f)
             project_name = compose_data.get('name', os.path.basename(compose_dir))
 
+        # Resolve the effective deploy host: an explicit request param wins,
+        # else the stack's persisted deploy_host, else local. The file always
+        # stays local - only where the containers land changes.
+        #
+        # HARD RULE, no exceptions: if that host isn't connected, fail loudly
+        # and do nothing else. Never silently deploy to local instead - a
+        # Pi-targeted stack accidentally run locally has taken down real
+        # infrastructure before (see project memory: DNS incident).
+        metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
+        stack_meta = metadata.get(f"_stack:{project_name}", {})
+        explicit_host = data.get('host')
+        deploy_host = explicit_host or stack_meta.get('deploy_host', 'local')
+
+        hosts_status = host_manager.get_hosts_status()
+        if deploy_host != 'local':
+            host_info = hosts_status.get(deploy_host)
+            if not host_info or not host_info.get('connected'):
+                logger.warning(f"Refusing to deploy {project_name} - target host {deploy_host} is offline")
+                return jsonify({
+                    'status': 'error',
+                    'error_type': 'host_offline',
+                    'host': deploy_host,
+                    'message': f'Target host "{deploy_host}" is offline - the deploy was NOT sent to local as a fallback.'
+                })
+
+        logger.info(f"Applying compose restart on file {compose_file}, pull={pull}, profiles={profiles}, deploy_host={deploy_host}")
+
+        # Use subprocess to run docker-compose commands
+        import subprocess
+
+        # Environment setup
+        env = os.environ.copy()
         env["COMPOSE_PROJECT_NAME"] = project_name
-        logger.info(f"Using project name: {project_name}")
+
+        if deploy_host != 'local':
+            docker_url = hosts_status[deploy_host]['url']
+            env['DOCKER_HOST'] = docker_url
+            logger.info(f"Setting DOCKER_HOST={docker_url} for {deploy_host} - bind-mount paths in this "
+                        f"file are interpreted on {deploy_host}'s filesystem, and images are pulled by {deploy_host}")
 
         # Prepare the command logging handler
         def log_command(cmd, cwd):
@@ -2359,9 +2414,9 @@ def apply_compose():
             if not supported:
                 return jsonify({'status': 'error', 'message': detail})
 
-            host_client = host_manager.get_client('local')
+            host_client = host_manager.get_client(deploy_host)
             if not host_client:
-                return jsonify({'status': 'error', 'message': 'Local Docker host not available'})
+                return jsonify({'status': 'error', 'message': f'Host {deploy_host} not available'})
             try:
                 deselected = compute_profile_deselection_diff(full_path, project_name, profiles, host_client)
             except ValueError as e:
@@ -2426,10 +2481,12 @@ def apply_compose():
 
         if profiles is not None:
             _persist_stack_profiles(project_name, profiles)
+        if explicit_host:
+            _persist_stack_deploy_host(project_name, explicit_host)
 
         return jsonify({
             'status': 'success',
-            'message': f'Successfully restarted containers for {project_name}'
+            'message': f'Successfully restarted containers for {project_name} on {deploy_host}'
         })
 
     except Exception as e:
@@ -2458,20 +2515,52 @@ def get_stack_profiles_endpoint():
         stack = get_stack_profiles(full_path)
 
         metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
-        selected_profiles = metadata.get(f"_stack:{project_name}", {}).get('selected_profiles', [])
+        stack_meta = metadata.get(f"_stack:{project_name}", {})
+        selected_profiles = stack_meta.get('selected_profiles', [])
+        deploy_host = stack_meta.get('deploy_host', 'local')
 
         host_client = host_manager.get_client(host)
         active_profiles = infer_active_profiles(full_path, project_name, host_client) if host_client else []
+
+        hosts_status = host_manager.get_hosts_status()
+        deploy_host_info = hosts_status.get(deploy_host, {}) if deploy_host != 'local' else {'connected': True}
 
         return jsonify({
             'status': 'success',
             'core': stack['core'],
             'profiles': stack['profiles'],
             'selected_profiles': selected_profiles,
-            'active_profiles': active_profiles
+            'active_profiles': active_profiles,
+            'deploy_host': deploy_host,
+            'deploy_host_connected': deploy_host_info.get('connected', False),
+            'available_hosts': list(hosts_status.keys()) + (['local'] if 'local' not in hosts_status else [])
         })
     except Exception as e:
         logger.error(f"Failed to get stack profiles: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@app.route('/api/stack/deploy-host', methods=['POST'])
+def set_stack_deploy_host():
+    """Set a stack's deploy_host attribute. Pure metadata write - it does not
+    itself move/redeploy anything; the frontend follows this with an
+    apply_compose call (which is where the no-silent-fallback hard rule
+    actually applies) to make the change take effect."""
+    try:
+        data = request.json or {}
+        project_name = data.get('project')
+        host = data.get('host', 'local')
+
+        if not project_name:
+            return jsonify({'status': 'error', 'message': 'project is required'})
+
+        if host != 'local' and host not in host_manager.get_hosts_status():
+            return jsonify({'status': 'error', 'message': f'Host {host} is not configured'})
+
+        _persist_stack_deploy_host(project_name, host)
+        return jsonify({'status': 'success', 'message': f'Deploy host for {project_name} set to {host}'})
+    except Exception as e:
+        logger.error(f"Failed to set stack deploy host: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
 

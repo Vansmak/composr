@@ -161,7 +161,23 @@ class HostManager:
             self._save_hosts_to_file()
             logger.info(f"Removed host {name}")
             return True, f"Host {name} removed successfully"
-    
+
+    def set_expect_offline(self, name, expect_offline):
+        """Mark a host as intermittently offline by design (e.g. a Windows
+        Docker Desktop PC that isn't always on). Purely a display hint -
+        get_hosts_status() surfaces this so the UI can render a paused (not
+        error) state and skip offline warnings for it. Does NOT affect deploy
+        behavior - a stack targeting an offline host still hard-fails rather
+        than silently deploying elsewhere, expected or not."""
+        with self._lock:
+            if name not in self.host_configs:
+                return False, f"Host {name} not found"
+            if name == 'local':
+                return False, "local is never considered offline"
+            self.host_configs[name]['expect_offline'] = bool(expect_offline)
+            self._save_hosts_to_file()
+            return True, f"Host {name} expect_offline set to {bool(expect_offline)}"
+
     def get_client(self, host_name=None):
         """Get Docker client for specific host or current host"""
         with self._lock:
@@ -216,7 +232,8 @@ class HostManager:
                     'type': config.get('type', 'unknown'),
                     'connected': self.connection_status.get(host_name, False),
                     'last_check': self.last_health_check.get(host_name, 0),
-                    'current': host_name == self.current_host
+                    'current': host_name == self.current_host,
+                    'expect_offline': config.get('expect_offline', False)
                 }
             return status
 
