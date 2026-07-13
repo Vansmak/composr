@@ -20,7 +20,9 @@ class HostManager:
         self.current_host = 'local'
         self.metadata_dir = metadata_dir
         self.hosts_file = os.path.join(metadata_dir, 'docker_hosts.json')
-        self._lock = threading.Lock()
+        # Reentrant: add_host/_perform_health_check hold the lock across a call
+        # into _create_client, which also needs to take it.
+        self._lock = threading.RLock()
         
         # Initialize with local Docker
         self._initialize_local_docker()
@@ -162,57 +164,69 @@ class HostManager:
     
     def get_client(self, host_name=None):
         """Get Docker client for specific host or current host"""
-        target_host = host_name or self.current_host
-        
-        if target_host not in self.clients:
-            logger.error(f"Host {target_host} not found in clients")
-            return None  # Don't fall back, return None
-        
-        if not self.connection_status.get(target_host, False):
-            logger.error(f"Host {target_host} not connected")
-            return None  # Don't fall back, return None
-        
-        return self.clients[target_host]
-    
+        with self._lock:
+            target_host = host_name or self.current_host
+
+            if target_host not in self.clients:
+                logger.error(f"Host {target_host} not found in clients")
+                return None  # Don't fall back, return None
+
+            if not self.connection_status.get(target_host, False):
+                logger.error(f"Host {target_host} not connected")
+                return None  # Don't fall back, return None
+
+            return self.clients[target_host]
+
     def get_all_containers(self):
         """Get containers from all connected hosts"""
         all_containers = []
-        
-        for host_name, client in self.clients.items():
-            if self.connection_status.get(host_name, False):
-                try:
-                    containers = client.containers.list(all=True)
-                    for container in containers:
-                        # Add host identifier to each container
-                        container._host = host_name
-                    all_containers.extend(containers)
-                except Exception as e:
-                    logger.error(f"Failed to get containers from host {host_name}: {e}")
+
+        # Snapshot under the lock - container listing does network I/O per host,
+        # which must not happen while holding the lock (it would block every other
+        # request touching host_manager for the duration of a slow/unreachable host).
+        with self._lock:
+            clients_snapshot = list(self.clients.items())
+
+        for host_name, client in clients_snapshot:
+            with self._lock:
+                connected = self.connection_status.get(host_name, False)
+            if not connected:
+                continue
+            try:
+                containers = client.containers.list(all=True)
+                for container in containers:
+                    # Add host identifier to each container
+                    container._host = host_name
+                all_containers.extend(containers)
+            except Exception as e:
+                logger.error(f"Failed to get containers from host {host_name}: {e}")
+                with self._lock:
                     self.connection_status[host_name] = False
-        
+
         return all_containers
-    
+
     def get_hosts_status(self):
         """Get status of all hosts"""
-        status = {}
-        for host_name in self.host_configs:
-            config = self.host_configs[host_name]
-            status[host_name] = {
-                'name': config.get('name', host_name),
-                'url': config.get('url', ''),
-                'type': config.get('type', 'unknown'),
-                'connected': self.connection_status.get(host_name, False),
-                'last_check': self.last_health_check.get(host_name, 0),
-                'current': host_name == self.current_host
-            }
-        return status
-    
+        with self._lock:
+            status = {}
+            for host_name, config in self.host_configs.items():
+                status[host_name] = {
+                    'name': config.get('name', host_name),
+                    'url': config.get('url', ''),
+                    'type': config.get('type', 'unknown'),
+                    'connected': self.connection_status.get(host_name, False),
+                    'last_check': self.last_health_check.get(host_name, 0),
+                    'current': host_name == self.current_host
+                }
+            return status
+
     def get_connected_hosts(self):
         """Get list of currently connected host names"""
-        return [
-            name for name, status in self.connection_status.items() 
-            if status
-        ]
+        with self._lock:
+            return [
+                name for name, status in self.connection_status.items()
+                if status
+            ]
     
     def test_host_connection(self, url):
         """Test connection to a Docker host without adding it"""
@@ -235,7 +249,8 @@ class HostManager:
         try:
             client = docker.DockerClient(base_url=config['url'], timeout=10)
             client.ping()  # Verify connection
-            self.clients[host_name] = client
+            with self._lock:
+                self.clients[host_name] = client
             return True
         except Exception as e:
             logger.error(f"Failed to create client for {host_name}: {e}")
@@ -258,34 +273,46 @@ class HostManager:
     def _perform_health_check(self):
         """Check health of all host connections"""
         current_time = time.time()
-        
-        for host_name, config in self.host_configs.items():
+
+        # Snapshot under the lock - the actual pings below do network I/O and must
+        # not run while holding the lock, or a slow/unreachable host would stall
+        # every other request touching host_manager until it times out.
+        with self._lock:
+            host_configs_snapshot = list(self.host_configs.items())
+
+        for host_name, config in host_configs_snapshot:
             try:
-                if host_name in self.clients:
+                with self._lock:
+                    existing_client = self.clients.get(host_name)
+
+                if existing_client:
                     # Test existing connection
-                    self.clients[host_name].ping()
-                    self.connection_status[host_name] = True
-                    self.last_health_check[host_name] = current_time
+                    existing_client.ping()
+                    with self._lock:
+                        self.connection_status[host_name] = True
+                        self.last_health_check[host_name] = current_time
                 else:
                     # Try to reconnect
                     if self._test_connection(config):
                         if self._create_client(host_name, config):
-                            self.connection_status[host_name] = True
-                            self.last_health_check[host_name] = current_time
+                            with self._lock:
+                                self.connection_status[host_name] = True
+                                self.last_health_check[host_name] = current_time
                             logger.info(f"Reconnected to host {host_name}")
                     else:
-                        self.connection_status[host_name] = False
+                        with self._lock:
+                            self.connection_status[host_name] = False
             except Exception as e:
                 logger.warning(f"Health check failed for {host_name}: {e}")
-                self.connection_status[host_name] = False
-                
-                # Try to reconnect
-                if host_name in self.clients:
+                with self._lock:
+                    self.connection_status[host_name] = False
+                    stale_client = self.clients.pop(host_name, None)
+
+                if stale_client:
                     try:
-                        self.clients[host_name].close()
+                        stale_client.close()
                     except Exception:
                         pass
-                    del self.clients[host_name]
 
 # Global instance
 host_manager = HostManager()
