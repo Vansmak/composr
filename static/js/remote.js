@@ -359,31 +359,6 @@ function loadAvailableHosts() {
             showMessage('error', 'Failed to load available hosts');
         });
 }
-// Legacy compatibility functions - keeping these for compatibility with other parts of the app
-function loadDockerHosts() {
-    fetch('/api/docker/hosts')
-        .then(response => response.json())
-        .then(data => {
-            const instanceSelector = document.getElementById('composr-instance-selector');
-            if (instanceSelector) {
-                instanceSelector.innerHTML = '<option value="">Current Instance</option>';
-                
-                Object.keys(data.hosts || {}).forEach(host => {
-                    if (host !== 'local') {
-                        const hostInfo = data.hosts[host];
-                        const option = document.createElement('option');
-                        option.value = hostInfo.url || '';
-                        option.textContent = host;
-                        instanceSelector.appendChild(option);
-                    }
-                });
-            }
-        })
-        .catch(error => {
-            console.error('Failed to load hosts:', error);
-        });
-}
-
 // Load and display hosts list (legacy compatibility)
 function loadHostsList() {
     loadHostsManagement();
@@ -673,7 +648,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Export functions for use in main.js
-window.loadDockerHosts = loadDockerHosts;
 window.switchToHost = switchToHost;
 window.loadHostsList = loadHostsList;
 window.addDockerHost = addDockerHost;

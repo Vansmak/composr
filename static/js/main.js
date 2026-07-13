@@ -448,59 +448,6 @@ function initializeViewControls() {
     updateFilterControlsForView();
 }
 
-// Load available Docker hosts on startup
-function loadDockerHosts() {
-    fetch('/api/docker/hosts')
-        .then(response => response.json())
-        .then(data => {
-            const select = document.getElementById('docker-host-select');
-            select.innerHTML = '';
-            
-            data.hosts.forEach(host => {
-                const option = document.createElement('option');
-                option.value = host;
-                option.textContent = host;
-                if (host === data.current) {
-                    option.selected = true;
-                }
-                select.appendChild(option);
-            });
-        })
-        .catch(error => {
-            console.error('Failed to load Docker hosts:', error);
-        });
-}
-
-// Switch Docker host
-function switchDockerHost() {
-    const select = document.getElementById('docker-host-select');
-    const newHost = select.value;
-    
-    setLoading(true, `Connecting to ${newHost}...`);
-    
-    fetch('/api/docker/switch-host', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host: newHost })
-    })
-    .then(response => response.json())
-    .then(result => {
-        setLoading(false);
-        if (result.status === 'success') {
-            showMessage('success', result.message);
-            refreshContainers(); // Reload containers from new host
-        } else {
-            showMessage('error', result.message);
-            // Revert selection if failed
-            loadDockerHosts();
-        }
-    })
-    .catch(error => {
-        setLoading(false);
-        showMessage('error', 'Failed to switch Docker host');
-    });
-}
-
 function syncFilters(sourceId, targetId) {
     const source = document.getElementById(sourceId);
     const target = document.getElementById(targetId);
@@ -647,50 +594,6 @@ function switchSubTab(subtabName) {
 // Replace existing toggleStats function (disabled)
 function toggleStats() {
     // No toggling; stats always use .stats-grid
-}
-
-// Replace existing loadSystemStats function
-function loadSystemStats() {
-    fetch('/api/system')
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                // Desktop stats (grid)
-                const totalContainersGrid = document.getElementById('total-containers-grid');
-                const runningContainers = document.getElementById('running-containers');
-                const cpuCountGrid = document.getElementById('cpu-count-grid');
-                const memoryUsageGrid = document.getElementById('memory-usage-grid');
-                const memoryTotalGrid = document.getElementById('memory-total-grid');
-                const memoryProgress = document.getElementById('memory-progress');
-                
-                // Mobile stats (compact)
-                const totalContainers = document.getElementById('total-containers');
-                const cpuCount = document.getElementById('cpu-count');
-                const memoryUsage = document.getElementById('memory-usage');
-                const memoryTotal = document.getElementById('memory-total');
-                
-                // Populate desktop stats
-                if (totalContainersGrid) totalContainersGrid.textContent = data.total_containers || '--';
-                if (runningContainers) runningContainers.textContent = data.running_containers || '--';
-                if (cpuCountGrid) cpuCountGrid.textContent = data.cpu_count || '--';
-                if (memoryUsageGrid) memoryUsageGrid.textContent = data.memory_used || '--';
-                if (memoryTotalGrid) memoryTotalGrid.textContent = data.memory_total || '--';
-                if (memoryProgress) memoryProgress.style.width = `${data.memory_percent || 0}%`;
-                
-                // Populate mobile stats
-                if (totalContainers) totalContainers.textContent = data.total_containers || '--';
-                if (cpuCount) cpuCount.textContent = data.cpu_count || '--';
-                if (memoryUsage) memoryUsage.textContent = data.memory_used || '--';
-                if (memoryTotal) memoryTotal.textContent = data.memory_total || '--';
-            } else {
-                console.error('System stats error:', data.message);
-                showMessage('error', data.message || 'Failed to load system stats');
-            }
-        })
-        .catch(error => {
-            console.error('Failed to load system stats:', error);
-            showMessage('error', 'Failed to load system stats');
-        });
 }
 
 // Container functionality
@@ -3971,7 +3874,6 @@ document.addEventListener('DOMContentLoaded', () => {
               
     // Initialize theme
     loadTheme();
-    loadDockerHosts();
 
     // UI improvements
     updateGroupFilterOptions();

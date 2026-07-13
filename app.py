@@ -101,7 +101,6 @@ while host_manager.get_client('local') is None and time.time() - start_time < 5:
 # Caching variables
 _system_stats_cache = {}
 _system_stats_timestamp = 0
-_container_cache = {}
 _cache_timestamp = 0
 _cache_lock = threading.Lock()
 CACHE_TTL = 10  # seconds
@@ -1514,139 +1513,7 @@ def repull_container(id):
         logger.error(f"Failed to repull container {id} on {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
-@app.route('/api/container/<id>/compose')
-def get_container_compose(id):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    try:
-        container = client.containers.get(id)
-        
-        # Extract project name and service name from labels
-        labels = container.labels
-        project = labels.get('com.docker.compose.project', '')
-        service = labels.get('com.docker.compose.service', '')
-        
-        logger.debug(f"Looking for compose file for project: {project}, service: {service}")
-        
-        # Check if project exists as a directory in COMPOSE_DIR
-        project_dir = os.path.join(COMPOSE_DIR, project)
-        
-        # List of common compose filenames
-        compose_filenames = ['docker-compose.yaml', 'docker-compose.yml', 'compose.yaml', 'compose.yml']
-        
-        # Try to find compose file in project directory
-        if os.path.isdir(project_dir):
-            logger.debug(f"Found project directory: {project_dir}")
-            
-            for filename in compose_filenames:
-                file_path = os.path.join(project_dir, filename)
-                if os.path.exists(file_path):
-                    logger.debug(f"Found compose file: {file_path}")
-                    
-                    with open(file_path, 'r') as f:
-                        content = f.read()
-                    
-                    relative_path = os.path.join(project, filename)
-                    return jsonify({
-                        'status': 'success',
-                        'content': content,
-                        'file': relative_path
-                    })
-        
-        # If that doesn't work, try all directories
-        for dir_name in os.listdir(COMPOSE_DIR):
-            dir_path = os.path.join(COMPOSE_DIR, dir_name)
-            if not os.path.isdir(dir_path):
-                continue
-                
-            for filename in compose_filenames:
-                file_path = os.path.join(dir_path, filename)
-                if os.path.exists(file_path):
-                    logger.debug(f"Checking compose file: {file_path}")
-                    
-                    # Check if this compose file contains the service
-                    try:
-                        with open(file_path, 'r') as f:
-                            import yaml
-                            try:
-                                compose_data = yaml.safe_load(f)
-                                if (compose_data and 'services' in compose_data and
-                                    service in compose_data['services']):
-                                    logger.debug(f"Found matching service in: {file_path}")
-                                    
-                                    with open(file_path, 'r') as f2:
-                                        content = f2.read()
-                                    
-                                    relative_path = os.path.join(dir_name, filename)
-                                    return jsonify({
-                                        'status': 'success',
-                                        'content': content,
-                                        'file': relative_path
-                                    })
-                            except yaml.YAMLError:
-                                pass
-                    except Exception as e:
-                        logger.debug(f"Error checking compose file: {e}")
-        
-        # If still not found, return error
-        logger.error(f"No matching compose file found for container {id}, project {project}, service {service}")
-        return jsonify({
-            'status': 'error',
-            'message': f'Compose file for {project}/{service} not found.'
-        })
-    except Exception as e:
-        logger.error(f"Failed to get compose file for container {id}: {e}", exc_info=True)
-        return jsonify({'status': 'error', 'message': f'Failed to load compose file: {str(e)}'})
-    
 # System info route
-@app.route('/api/system')
-def get_system_stats():
-    global _system_stats_cache, _system_stats_timestamp
-    if client is None:
-        logger.error("Docker client not initialized")
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    current_time = time.time()
-    with _cache_lock:
-        if current_time - _system_stats_timestamp < CACHE_TTL and _system_stats_cache:
-            logger.debug("Using cached system stats")
-            return jsonify(_system_stats_cache)
-    try:
-        info = client.info()
-        if not info:
-            logger.error("Empty response from client.info()")
-            return jsonify({'status': 'error', 'message': 'No system info available'})
-        total_memory = 0
-        used_memory = 0
-        try:
-            with open('/proc/meminfo', 'r') as f:
-                meminfo = f.readlines()
-            for line in meminfo:
-                if line.startswith('MemTotal:'):
-                    total_memory = int(line.split()[1]) / 1024
-                elif line.startswith('MemAvailable:'):
-                    mem_available = int(line.split()[1]) / 1024
-                    used_memory = total_memory - mem_available
-        except Exception as e:
-            logger.warning(f"Failed to read /proc/meminfo: {e}")
-            total_memory = info.get('MemTotal', 0) / (1024 * 1024)
-            used_memory = total_memory - (info.get('MemFree', 0) / (1024 * 1024))
-        stats = {
-            'status': 'success',
-            'total_containers': info.get('Containers', 0),
-            'running_containers': info.get('ContainersRunning', 0),
-            'cpu_count': info.get('NCPU', 0),
-            'memory_used': round(used_memory, 2),
-            'memory_total': round(total_memory, 2),
-            'memory_percent': round((used_memory / total_memory * 100) if total_memory else 0, 2)
-        }
-        with _cache_lock:
-            _system_stats_cache = stats
-            _system_stats_timestamp = current_time
-        return jsonify(stats)
-    except Exception as e:
-        logger.error(f"Failed to get system stats: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
-
 # Compose file routes
 @app.route('/api/compose/files')
 def get_compose_files_endpoint():
@@ -2059,7 +1926,7 @@ def analyze_compose_data(compose_data, target_host):
     }
 
 def execute_compose_on_host_enhanced(compose_file_path, target_host, action, pull_images=False):
-    """Enhanced version of execute_compose_on_host with better error handling"""
+    """Execute docker-compose command on a specific host, with detailed error handling"""
     try:
         import subprocess
         
@@ -2285,87 +2152,6 @@ def check_host_deployment_ready(host_name):
         })
 
 
-def execute_compose_on_host(compose_file_path, target_host, action):
-    """Execute docker-compose command on a specific host"""
-    try:
-        import subprocess
-        
-        compose_dir = os.path.dirname(compose_file_path)
-        compose_filename = os.path.basename(compose_file_path)
-        
-        # Setup environment
-        env = os.environ.copy()
-        
-        # Set DOCKER_HOST for remote execution
-        if target_host != 'local':
-            host_config = host_manager.get_hosts_status().get(target_host, {})
-            docker_url = host_config.get('url', '')
-            if docker_url:
-                env['DOCKER_HOST'] = docker_url
-                logger.info(f"Setting DOCKER_HOST={docker_url} for {target_host}")
-        
-        # Determine project name
-        project_name = os.path.basename(compose_dir)
-        env['COMPOSE_PROJECT_NAME'] = project_name
-        
-        # Build command
-        cmd = ['docker-compose', '-f', compose_filename]
-        
-        if action == 'up':
-            cmd.extend(['up', '-d'])
-        elif action == 'down':
-            cmd.append('down')
-        elif action == 'restart':
-            cmd.extend(['down'])  # First down
-        else:
-            return {'success': False, 'message': f'Unknown action: {action}'}
-        
-        logger.info(f"Executing: {' '.join(cmd)} in {compose_dir} for host {target_host}")
-        
-        # Execute command
-        result = subprocess.run(
-            cmd,
-            cwd=compose_dir,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=300  # 5 minute timeout
-        )
-        
-        if result.returncode == 0:
-            # If restart, now do the up
-            if action == 'restart':
-                up_cmd = ['docker-compose', '-f', compose_filename, 'up', '-d']
-                up_result = subprocess.run(
-                    up_cmd,
-                    cwd=compose_dir,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=300
-                )
-                if up_result.returncode != 0:
-                    return {
-                        'success': False,
-                        'message': f'Restart failed on up phase: {up_result.stderr}'
-                    }
-            
-            return {
-                'success': True,
-                'output': result.stdout,
-                'message': f'Command completed successfully on {target_host}'
-            }
-        else:
-            return {
-                'success': False,
-                'message': f'Command failed: {result.stderr}'
-            }
-            
-    except subprocess.TimeoutExpired:
-        return {'success': False, 'message': 'Command timed out after 5 minutes'}
-    except Exception as e:
-        return {'success': False, 'message': str(e)}
-    
 @app.route('/api/compose', methods=['GET'])
 def get_compose():
     try:
@@ -2865,28 +2651,6 @@ def remove_unused_images():
         logger.error(f"Failed to remove unused images on {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
-    
-
-# Simple functions to load/save hosts
-def load_hosts():
-    try:
-        if os.path.exists(HOSTS_FILE):
-            with open(HOSTS_FILE, 'r') as f:
-                return json.load(f)
-        return {"local": {"url": "", "connected": True}}
-    except Exception as e:
-        logger.error(f"Failed to load hosts: {e}")
-        return {"local": {"url": "", "connected": True}}
-
-def save_hosts(hosts):
-    try:
-        with open(HOSTS_FILE, 'w') as f:
-            json.dump(hosts, f)
-        return True
-    except Exception as e:
-        logger.error(f"Failed to save hosts: {e}")
-        return False
-
 
 
     
@@ -3036,44 +2800,6 @@ def prune_volumes():
         logger.error(f"Failed to prune volumes on {host}: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
-
-# Enhanced project creation with host awareness
-@app.route('/api/compose/create', methods=['POST'])
-def create_compose_project_multihost():
-    """Create compose project with multi-host awareness"""
-    try:
-        data = request.json
-        project_name = data.get('project_name')
-        target_host = data.get('target_host', 'local')
-        
-        if not project_name:
-            return jsonify({'status': 'error', 'message': 'Project name is required'})
-        
-        # Always create project locally (files are managed locally)
-        result = create_project_locally(data)
-        
-        if result['success']:
-            # Optionally deploy to target host after creation
-            if data.get('auto_deploy', False) and target_host != 'local':
-                compose_file = result['compose_file']
-                deploy_result = execute_compose_on_host(
-                    os.path.join(COMPOSE_DIR, compose_file), 
-                    target_host, 
-                    'up'
-                )
-                
-                if deploy_result['success']:
-                    result['message'] += f' and deployed to {target_host}'
-                else:
-                    result['message'] += f' but deployment to {target_host} failed: {deploy_result["message"]}'
-            
-            return jsonify(result)
-        else:
-            return jsonify(result)
-            
-    except Exception as e:
-        logger.error(f"Failed to create project: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
 
 def create_project_locally(data):
     """Create project on local filesystem (existing logic)"""
@@ -3696,10 +3422,6 @@ def get_available_locations():
        
 @app.route('/api/compose/create', methods=['POST'])
 def create_compose_project():
-    print("DEBUG: /api/compose/create endpoint hit!")
-    print(f"DEBUG: Request method: {request.method}")
-    print(f"DEBUG: Request data: {request.json}")
-    
     try:
         data = request.json
         if not data or 'project_name' not in data:
@@ -3730,15 +3452,12 @@ def create_compose_project():
                 if 0 <= extra_index < len(extra_dirs) and extra_dirs[extra_index]:
                     extra_dir = extra_dirs[extra_index]
                     project_dir = os.path.join(extra_dir, project_name)
-                    print(f"DEBUG: Using extra directory: {extra_dir}")
-                    print(f"DEBUG: Project directory will be: {project_dir}")
                 else:
                     return jsonify({
                         'status': 'error',
                         'message': f'Invalid project location index: {extra_index}'
                     })
             except (ValueError, IndexError) as e:
-                print(f"DEBUG: Error parsing location_type: {e}")
                 return jsonify({
                     'status': 'error',
                     'message': 'Invalid location format'
@@ -3749,41 +3468,31 @@ def create_compose_project():
                 'message': 'Invalid project location'
             })
         
-        print(f"DEBUG: Final project directory: {project_dir}")
-        
         # Check if directory already exists
         if os.path.exists(project_dir):
             return jsonify({
                 'status': 'error',
                 'message': f'Project directory {project_dir} already exists'
             })
-            
+
         # Create project directory
         os.makedirs(project_dir, exist_ok=True)
-        print(f"DEBUG: Created directory: {project_dir}")
-        
+
         # Create docker-compose.yml file
         compose_content = data.get('compose_content', '')
         compose_file_path = os.path.join(project_dir, 'docker-compose.yml')
         with open(compose_file_path, 'w') as f:
             f.write(compose_content)
-        print(f"DEBUG: Created compose file: {compose_file_path}")
-            
+
         # FIX: Create .env file if requested - check the correct fields
         create_env_file = data.get('create_env_file', False)
         env_content = data.get('env_content', '')
-        
-        print(f"DEBUG: create_env_file = {create_env_file}")
-        print(f"DEBUG: env_content length = {len(env_content) if env_content else 0}")
-        
+
         if create_env_file and env_content:
             env_file_path = os.path.join(project_dir, '.env')
             with open(env_file_path, 'w') as f:
                 f.write(env_content)
-            print(f"DEBUG: Created .env file: {env_file_path}")
-        elif create_env_file:
-            print("DEBUG: create_env_file is True but no env_content provided")
-                
+
         logger.info(f"Created new project: {project_name} in {project_dir}")
         
         return jsonify({
