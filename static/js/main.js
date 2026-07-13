@@ -599,12 +599,21 @@ function toggleStats() {
 // Container functionality
 function startStatsUpdater() {
     console.log("Starting stats updater...");
-    
+
     setInterval(() => {
         if (document.getElementById('loading-spinner')) {
             return;
         }
-        
+
+        // Nothing in this tick's response is used outside the containers tab
+        // (it only patches .container-stats/dataset on cards that only exist
+        // there), so skip the fetch entirely while another tab is active
+        // instead of polling /api/containers in the background forever.
+        const containersTab = document.getElementById('containers-tab');
+        if (!containersTab || !containersTab.classList.contains('active')) {
+            return;
+        }
+
         fetch('/api/containers?nocache=' + Date.now())
             .then(response => response.json())
             .then(containers => {
