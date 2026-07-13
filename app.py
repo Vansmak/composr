@@ -106,10 +106,7 @@ _cache_timestamp = 0
 _cache_lock = threading.Lock()
 CACHE_TTL = 10  # seconds
 
-# Initialize Docker client (this gets the current/local client)
-client = host_manager.get_client()
-
-logger.info(f"Composr initialized with client: {'available' if client else 'unavailable'}")
+logger.info(f"Composr initialized with local client: {'available' if host_manager.get_client('local') else 'unavailable'}")
 logger.info(f"Connected hosts: {list(host_manager.get_connected_hosts())}")
 # Initialize the container update manager
 container_update_manager = ContainerUpdateManager(
@@ -2154,9 +2151,6 @@ def get_compose():
             return jsonify({'status': 'error', 'message': 'No file path provided'})
         logger.debug(f"Attempting to load compose file: {file_path}")
         full_path = resolve_compose_file_path(file_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
-        if full_path and os.path.exists(full_path) and not is_path_within_allowed_dirs(full_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS):
-            logger.warning(f"Rejected compose file outside allowed directories: {file_path} -> {full_path}")
-            full_path = None
         if full_path and os.path.exists(full_path):
             with open(full_path, 'r') as f:
                 content = f.read()
@@ -2691,7 +2685,8 @@ def save_caddy_file():
             
         # Optional: Reload Caddy to apply changes
         if data.get('reload', False):
-            caddy_container = find_caddy_container(client, logger)
+            local_client = host_manager.get_client('local')
+            caddy_container = find_caddy_container(local_client, logger) if local_client else None
             if caddy_container:
                 caddy_container.exec_run("caddy reload")
                 

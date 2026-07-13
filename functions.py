@@ -147,40 +147,14 @@ def scan_all_compose_files(compose_dir, extra_dirs, logger):
         logger.error(f"Failed to scan compose files: {e}", exc_info=True)
         raise
 
-def resolve_compose_file_path(file_path, compose_dir, extra_dirs, logger):
-    """Resolve the full path of a compose file by checking configured directories"""
-    logger.debug(f"Resolving compose file path: {file_path}")
-    file_path = file_path.replace('\\', '/')
-    if os.path.isabs(file_path):
-        if os.path.exists(file_path):
-            logger.debug(f"Found absolute path: {file_path}")
-            return file_path
-        try:
-            relative_path = os.path.relpath(file_path, compose_dir)
-            full_path = os.path.join(compose_dir, relative_path)
-            if os.path.exists(full_path):
-                logger.debug(f"Found file after converting absolute to relative: {full_path}")
-                return full_path
-        except ValueError:
-            pass
-        logger.debug(f"Absolute path does not exist: {file_path}")
-    search_dirs = [compose_dir] + [d for d in extra_dirs if d]
-    for search_dir in search_dirs:
-        full_path = os.path.join(search_dir, file_path)
-        if os.path.exists(full_path):
-            logger.debug(f"Found file at: {full_path}")
-            return full_path
-        logger.debug(f"File not found at: {full_path}")
-    logger.warning(f"Could not resolve compose file: {file_path}")
-    return None
-
 def is_path_within_allowed_dirs(full_path, compose_dir, extra_dirs):
     """Check that full_path resolves inside compose_dir or one of extra_dirs.
 
     Guards the compose/env file read+write endpoints against an absolute path or a
-    '../' relative path escaping the intended directory tree - resolve_compose_file_path
-    and the env-file endpoints otherwise use whatever path the caller hands them.
-    Uses realpath so symlinks and unnormalized '..' segments can't slip through.
+    '../' relative path escaping the intended directory tree. Uses realpath so
+    symlinks and unnormalized '..' segments can't slip through, and so a sibling
+    directory that merely shares a prefix (e.g. compose vs compose-evil) isn't
+    mistaken for a subdirectory.
     """
     allowed_roots = [os.path.realpath(compose_dir)]
     for d in (extra_dirs or []):
@@ -192,6 +166,42 @@ def is_path_within_allowed_dirs(full_path, compose_dir, extra_dirs):
         real_path == root or real_path.startswith(root + os.sep)
         for root in allowed_roots
     )
+
+def resolve_compose_file_path(file_path, compose_dir, extra_dirs, logger):
+    """Resolve the full path of a compose file by checking configured directories.
+
+    Only returns a path that is actually contained within compose_dir or one of
+    extra_dirs (see is_path_within_allowed_dirs) - an absolute or '../' path that
+    escapes those roots is rejected even if it happens to exist on disk.
+    """
+    logger.debug(f"Resolving compose file path: {file_path}")
+    file_path = file_path.replace('\\', '/')
+
+    def _contained(path):
+        return is_path_within_allowed_dirs(path, compose_dir, extra_dirs)
+
+    if os.path.isabs(file_path):
+        if os.path.exists(file_path) and _contained(file_path):
+            logger.debug(f"Found absolute path: {file_path}")
+            return file_path
+        try:
+            relative_path = os.path.relpath(file_path, compose_dir)
+            full_path = os.path.join(compose_dir, relative_path)
+            if os.path.exists(full_path) and _contained(full_path):
+                logger.debug(f"Found file after converting absolute to relative: {full_path}")
+                return full_path
+        except ValueError:
+            pass
+        logger.debug(f"Absolute path does not exist or is outside allowed directories: {file_path}")
+    search_dirs = [compose_dir] + [d for d in extra_dirs if d]
+    for search_dir in search_dirs:
+        full_path = os.path.join(search_dir, file_path)
+        if os.path.exists(full_path) and _contained(full_path):
+            logger.debug(f"Found file at: {full_path}")
+            return full_path
+        logger.debug(f"File not found at: {full_path}")
+    logger.warning(f"Could not resolve compose file: {file_path}")
+    return None
 
 def extract_env_from_compose(compose_file_path, modify_compose=False, logger=None):
     """Extract environment variables from a compose file to create a .env file"""
@@ -244,3 +254,50 @@ def find_caddy_container(client, logger):
     except Exception as e:
         logger.error(f"Failed to find Caddy container: {e}")
         return None
+
+if __name__ == '__main__':
+    # Sanity check for is_path_within_allowed_dirs / resolve_compose_file_path
+    # containment (REVIEW.md B3/S3). Run directly: python3 functions.py
+    import tempfile
+    import logging
+
+    with tempfile.TemporaryDirectory() as tmp:
+        compose_dir = os.path.join(tmp, 'compose')
+        extra_dir = os.path.join(tmp, 'extra')
+        outside_dir = os.path.join(tmp, 'outside')
+        os.makedirs(os.path.join(compose_dir, 'proj'))
+        os.makedirs(os.path.join(extra_dir, 'proj2'))
+        os.makedirs(outside_dir)
+
+        legit_file = os.path.join(compose_dir, 'proj', 'docker-compose.yml')
+        extra_file = os.path.join(extra_dir, 'proj2', 'docker-compose.yml')
+        outside_file = os.path.join(outside_dir, 'docker-compose.yml')
+        for f in (legit_file, extra_file, outside_file):
+            open(f, 'w').close()
+
+        symlink_path = os.path.join(compose_dir, 'sneaky-link.yml')
+        os.symlink(outside_file, symlink_path)
+
+        test_logger = logging.getLogger('functions_selftest')
+        test_logger.addHandler(logging.NullHandler())
+
+        checks = [
+            ('relative traversal escape', '../../outside/docker-compose.yml', False),
+            ('absolute path outside roots', outside_file, False),
+            ('symlink pointing outside roots', 'sneaky-link.yml', False),
+            ('legitimate path in compose_dir', 'proj/docker-compose.yml', True),
+            ('legitimate path in an extra dir', extra_file, True),
+        ]
+
+        failures = 0
+        for name, path, expected_allowed in checks:
+            resolved = resolve_compose_file_path(path, compose_dir, [extra_dir], test_logger)
+            allowed = resolved is not None
+            status = 'PASS' if allowed == expected_allowed else 'FAIL'
+            if status == 'FAIL':
+                failures += 1
+            print(f"[{status}] {name}: resolved={resolved!r} (expected allowed={expected_allowed})")
+
+        if failures:
+            raise SystemExit(f"{failures} containment check(s) failed")
+        print("All containment checks passed.")
