@@ -1682,7 +1682,7 @@ function showContainerPopup(id, name, host = 'local') {
     .then(([tagData, urlData, inspectData]) => {
         const tags = tagData.tags || [];
         const customUrl = urlData.url || '';
-        
+
         let portsInfo = 'No exposed ports';
         let composeFile = '', composeProject = '', composeService = '';
         if (inspectData.status === 'success') {
@@ -1713,10 +1713,13 @@ function showContainerPopup(id, name, host = 'local') {
                 <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
             </div>
 
-            <div class="container-details" style="margin-bottom: 1rem;">
-                <div class="detail-row">
-                    <strong>Host:</strong> ${host}
+            ${composeService ? `<div class="container-properties-panel" style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(128,128,128,0.08); border-radius: 6px;">
+                <div id="popup-properties-content" data-compose-file="${composeFile}" data-compose-project="${composeProject}" data-compose-service="${composeService}" data-host="${host}">
+                    <p style="margin:0; font-size:0.85rem; color: var(--text-secondary);">Loading attributes…</p>
                 </div>
+            </div>` : ''}
+
+            <div class="container-details" style="margin-bottom: 1rem;">
                 <div class="detail-row">
                     <strong>Stats:</strong> CPU: <span id="popup-cpu-${id}">Loading...</span>% | Memory: <span id="popup-memory-${id}">Loading...</span> MB
                 </div>
@@ -1740,23 +1743,151 @@ function showContainerPopup(id, name, host = 'local') {
                 <button class="btn btn-primary" onclick="inspectContainer('${id}', '${host}')">Inspect</button>
                 <button class="btn btn-primary" onclick="execIntoContainer('${id}', '${name}', '${host}')">Terminal</button>
                 <button class="btn btn-primary" onclick="repullContainer('${id}', '${host}')">Repull</button>
-                ${composeService ? `<button class="btn btn-secondary" onclick="showMoveServiceDialog('${composeFile}', '${composeService}', '${host}')">Move to stack…</button>` : ''}
                 <button class="btn btn-error" onclick="removeContainer('${id}', '${name}', '${host}')">Remove</button>
             </div>
         `;
         document.body.appendChild(popup);
-        
+
         // Load stats in the popup
         const container = document.querySelector(`[data-id="${id}"]`);
         if (container) {
             document.getElementById(`popup-cpu-${id}`).textContent = container.dataset.cpu || '0';
             document.getElementById(`popup-memory-${id}`).textContent = container.dataset.memory || '0';
         }
+
+        if (composeService) {
+            loadPopupPropertiesPanel(popup, composeFile, composeProject, composeService, host);
+        }
     })
     .catch(error => {
         console.error('Error getting container settings:', error);
         showMessage('error', 'Failed to load container settings');
     });
+}
+
+// Properties panel: Profile / Compose file / Host as attribute-changers, per
+// the service-centric design philosophy - changing one of these IS the
+// action, not a separate scattered button. Reuses the exact same endpoints
+// and confirm/warning flows as the stack modal (Commit 1/3) and the move
+// dialog (Commit 2) - this panel is a second entry point onto the same
+// stack-level attributes, not a parallel implementation of them.
+function loadPopupPropertiesPanel(popup, composeFile, composeProject, composeService, host) {
+    const content = popup.querySelector('#popup-properties-content');
+    if (!content) return;
+
+    const params = new URLSearchParams({ file: composeFile, project: composeProject, host });
+    Promise.all([
+        fetch(`/api/stack/profiles?${params}`).then(r => r.json()),
+        fetch('/api/hosts').then(r => r.json())
+    ])
+    .then(([profileData, hostsData]) => {
+        if (profileData.status !== 'success') {
+            content.innerHTML = '';
+            return;
+        }
+
+        // Which profile (if any) gates this specific service
+        let profileLabel, profileAction;
+        if ((profileData.core || []).includes(composeService)) {
+            profileLabel = 'core (always on)';
+            profileAction = `<button class="btn btn-secondary btn-sm" id="popup-profile-btn">Set Inactive</button>`;
+        } else {
+            const owningProfiles = Object.entries(profileData.profiles || {})
+                .filter(([, services]) => services.includes(composeService))
+                .map(([name]) => name);
+            if (owningProfiles.length === 1 && owningProfiles[0] === 'inactive') {
+                profileLabel = 'inactive';
+                profileAction = `<button class="btn btn-secondary btn-sm" id="popup-profile-btn">Set Active</button>`;
+            } else {
+                profileLabel = owningProfiles.join(', ') || 'unknown';
+                profileAction = `<button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.logs-modal').forEach(m=>m.remove()); showStackDetailsModal('${composeProject}', '${composeFile}', '${host}')">Manage in Stack</button>`;
+            }
+        }
+
+        const hostOptions = Object.keys(hostsData.hosts || { local: {} }).map(h =>
+            `<option value="${h}" ${h === host ? 'selected' : ''}>${h}</option>`
+        ).join('');
+
+        content.innerHTML = `
+            <div class="property-row" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem; flex-wrap:wrap;">
+                <strong style="min-width:100px;">Profile:</strong>
+                <span>${profileLabel}</span>
+                ${profileAction}
+            </div>
+            <div class="property-row" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem; flex-wrap:wrap;">
+                <strong style="min-width:100px;">Compose file:</strong>
+                <span style="font-size:0.85rem; word-break:break-all;">${composeFile.split('/').pop()}</span>
+                <button class="btn btn-secondary btn-sm" onclick="showMoveServiceDialog('${composeFile}', '${composeService}', '${host}')">Move to stack…</button>
+            </div>
+            <div class="property-row" style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                <strong style="min-width:100px;">Host:</strong>
+                <select class="filter-select popup-host-select" style="max-width:160px;">
+                    ${hostOptions}
+                </select>
+            </div>
+        `;
+
+        const profileBtn = content.querySelector('#popup-profile-btn');
+        if (profileBtn) {
+            const goingInactive = profileLabel !== 'inactive';
+            profileBtn.addEventListener('click', () => {
+                togglePopupServiceProfile(composeFile, composeService, goingInactive, popup);
+            });
+        }
+
+        const hostSelect = content.querySelector('.popup-host-select');
+        hostSelect.addEventListener('change', () => {
+            const newHost = hostSelect.value;
+            if (newHost === host) return;
+            if (!confirm(`Move "${composeProject}" to run on "${newHost}"? This stops it wherever it's currently running and redeploys it there.`)) {
+                hostSelect.value = host;
+                return;
+            }
+            const selectedProfiles = profileData.selected_profiles || [];
+            fetch('/api/stack/deploy-host', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project: composeProject, host: newHost })
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.status !== 'success') {
+                    showMessage('error', result.message);
+                    hostSelect.value = host;
+                    return;
+                }
+                document.querySelectorAll('.logs-modal').forEach(m => m.remove());
+                deployStackToHost(composeFile, composeProject, newHost, selectedProfiles);
+            })
+            .catch(error => {
+                showMessage('error', `Failed to set deploy host: ${error.message}`);
+                hostSelect.value = host;
+            });
+        });
+    })
+    .catch(error => {
+        console.error('Failed to load properties panel:', error);
+        content.innerHTML = '';
+    });
+}
+
+function togglePopupServiceProfile(composeFile, composeService, inactive, popup) {
+    fetch('/api/service/set-inactive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: composeFile, service: composeService, inactive })
+    })
+    .then(r => r.json())
+    .then(result => {
+        if (result.status !== 'success') {
+            showMessage('error', result.message);
+            return;
+        }
+        showMessage('success', `${composeService} profile updated - redeploy the stack for this to take effect.`);
+        popup.remove();
+        refreshContainers();
+    })
+    .catch(error => showMessage('error', `Failed to update profile: ${error.message}`));
 }
 
 // "Move to stack…" - pick a target compose file for this service.
