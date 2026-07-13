@@ -1116,11 +1116,16 @@ function getSelectedImageHost() {
 function renderImageCard(image, container) {
     const imageCard = document.createElement('div');
     imageCard.className = 'image-card';
-    
+
     const isUsed = image.used_by && image.used_by.length > 0;
     const hostDisplay = image.host_display || image.host || 'local';
-    
+    const isBatchMode = container.classList.contains('batch-mode');
+
     imageCard.innerHTML = `
+        ${isBatchMode ? `
+            <input type="checkbox" class="image-select" data-image-id="${image.id}" data-image-host="${image.host || 'local'}"
+                   ${isUsed ? 'disabled title="In use - cannot be removed"' : ''} onchange="updateImageBatchCount()">
+        ` : ''}
         <div class="image-header">
             <span class="image-name">${image.name}</span>
             <span class="image-size">${image.size} MB</span>
@@ -1831,7 +1836,8 @@ function loadPopupPropertiesPanel(popup, composeFile, composeProject, composeSer
         if (profileBtn) {
             const goingInactive = profileLabel !== 'inactive';
             profileBtn.addEventListener('click', () => {
-                togglePopupServiceProfile(composeFile, composeService, goingInactive, popup);
+                const selectedProfiles = profileData.selected_profiles || [];
+                togglePopupServiceProfile(composeFile, composeProject, composeService, host, goingInactive, selectedProfiles, popup);
             });
         }
 
@@ -1871,7 +1877,16 @@ function loadPopupPropertiesPanel(popup, composeFile, composeProject, composeSer
     });
 }
 
-function togglePopupServiceProfile(composeFile, composeService, inactive, popup) {
+// Changing the Profile attribute IS the action, same as Host - edits the
+// file AND immediately redeploys the stack (with its current profile
+// selection otherwise unchanged) so the change actually takes effect rather
+// than silently waiting for some later unrelated deploy.
+function togglePopupServiceProfile(composeFile, composeProject, composeService, host, inactive, selectedProfiles, popup) {
+    const verb = inactive ? 'stop and remove' : 'start';
+    if (!confirm(`Set "${composeService}" ${inactive ? 'inactive' : 'active'}? This will ${verb} it on the next deploy, happening now.`)) {
+        return;
+    }
+
     fetch('/api/service/set-inactive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1883,9 +1898,8 @@ function togglePopupServiceProfile(composeFile, composeService, inactive, popup)
             showMessage('error', result.message);
             return;
         }
-        showMessage('success', `${composeService} profile updated - redeploy the stack for this to take effect.`);
         popup.remove();
-        refreshContainers();
+        deployStackToHost(composeFile, composeProject, host, selectedProfiles);
     })
     .catch(error => showMessage('error', `Failed to update profile: ${error.message}`));
 }
@@ -3808,6 +3822,72 @@ function removeUnusedImages() {
     });
 }
 
+// Multi-select for images: pick specific images (rather than "prune all
+// dangling" or "remove all unused") and remove just those. Loops the
+// existing single-image /api/images/<id>/remove endpoint per selection
+// (each image can be on a different host in the multi-host list) rather
+// than adding a new batch endpoint for this.
+function toggleImageBatchMode() {
+    const imagesList = document.getElementById('images-list');
+    const tableBody = document.getElementById('images-table-body');
+    const batchActions = document.getElementById('image-batch-actions');
+    const toggleBtn = document.getElementById('toggle-image-batch-mode');
+
+    const isBatchMode = imagesList ? imagesList.classList.toggle('batch-mode') : false;
+    if (tableBody) tableBody.classList.toggle('batch-mode', isBatchMode);
+    if (batchActions) batchActions.style.display = isBatchMode ? 'flex' : 'none';
+    if (toggleBtn) toggleBtn.textContent = isBatchMode ? 'Cancel Select' : 'Select Multiple';
+
+    loadImages(); // re-render with/without checkboxes
+}
+
+function updateImageBatchCount() {
+    const count = document.querySelectorAll('.image-select:checked').length;
+    const countEl = document.getElementById('image-batch-count');
+    if (countEl) countEl.textContent = `${count} selected`;
+}
+
+function selectAllImages() {
+    document.querySelectorAll('.image-select:not(:disabled)').forEach(checkbox => {
+        checkbox.checked = true;
+    });
+    updateImageBatchCount();
+}
+
+function bulkRemoveSelectedImages() {
+    const selected = Array.from(document.querySelectorAll('.image-select:checked'))
+        .map(checkbox => ({ id: checkbox.dataset.imageId, host: checkbox.dataset.imageHost }));
+
+    if (!selected.length) {
+        showMessage('error', 'No images selected');
+        return;
+    }
+
+    if (!confirm(`Remove ${selected.length} selected image(s)? This cannot be undone.`)) {
+        return;
+    }
+
+    setLoading(true, `Removing ${selected.length} image(s)...`);
+    Promise.all(selected.map(({ id, host }) =>
+        fetch(`/api/images/${id}/remove`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ host, force: true })
+        }).then(r => r.json()).catch(error => ({ status: 'error', message: error.message }))
+    ))
+    .then(results => {
+        setLoading(false);
+        const succeeded = results.filter(r => r.status === 'success').length;
+        const failed = results.length - succeeded;
+        if (failed === 0) {
+            showMessage('success', `Removed ${succeeded} image(s)`);
+        } else {
+            showMessage('warning', `Removed ${succeeded} image(s), ${failed} failed`);
+        }
+        loadImages();
+    });
+}
+
 function removeImage(id, host = 'local') {
     // Single confirmation with clear action
     if (!confirm(`Remove this image from ${host}?\n\nThis action cannot be undone.`)) {
@@ -3900,13 +3980,18 @@ function loadImages() {
             
             if (isTableView) {
                 // Render in table format
+                const isTableBatchMode = tableBody.classList.contains('batch-mode');
                 images.forEach(image => {
                     const row = document.createElement('tr');
                     const isUsed = image.used_by && image.used_by.length > 0;
                     const hostDisplay = image.host_display || image.host || 'local';
-                    
+                    const checkboxHtml = isTableBatchMode ? `
+                        <input type="checkbox" class="image-select" data-image-id="${image.id}" data-image-host="${image.host || 'local'}"
+                               ${isUsed ? 'disabled title="In use - cannot be removed"' : ''} onchange="updateImageBatchCount()">
+                    ` : '';
+
                     row.innerHTML = `
-                        <td class="image-name-cell">${image.name}</td>
+                        <td class="image-name-cell">${checkboxHtml}${image.name}</td>
                         <td class="image-tags-cell">${image.tags.join(', ')}</td>
                         <td class="image-size-cell">${image.size} MB</td>
                         <td class="image-created-cell">${image.created}</td>
@@ -4535,23 +4620,12 @@ function initializeEventListeners() {
     // Refresh button
     addEventListenerIfExists('refresh-btn', 'click', refreshContainers);
     
-    // Image action buttons
-    const pruneImagesBtn = document.querySelector('button[onclick="pruneImages()"]');
-    if (pruneImagesBtn) {
-        pruneImagesBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            pruneImages();
-        });
-    }
-    
-    const removeUnusedBtn = document.querySelector('button[onclick="removeUnusedImages()"]');
-    if (removeUnusedBtn) {
-        removeUnusedBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            removeUnusedImages();
-        });
-    }
-    
+    // Image action buttons (pruneImages/removeUnusedImages/toggleImageBatchMode
+    // are wired via onclick attributes directly in the template - attaching a
+    // second addEventListener here on top of that double-fired every click,
+    // which is exactly what caused Docker's "prune already in progress" error
+    // on a single click).
+
     console.log('All event listeners initialized');
 }
 
@@ -4653,6 +4727,10 @@ window.pruneImages = pruneImages;
 window.removeUnusedImages = removeUnusedImages;
 window.removeImage = removeImage;
 window.toggleImageView = toggleImageView;
+window.toggleImageBatchMode = toggleImageBatchMode;
+window.updateImageBatchCount = updateImageBatchCount;
+window.selectAllImages = selectAllImages;
+window.bulkRemoveSelectedImages = bulkRemoveSelectedImages;
 window.extractStackName = extractStackName;
 window.findComposeFileForStack = findComposeFileForStack;
 window.createAndDeployProject = createAndDeployProject;

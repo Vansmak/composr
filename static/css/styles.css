@@ -760,11 +760,28 @@ header {
 }
 
 .image-card {
+    position: relative;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: 8px;
     overflow: hidden;
     transition: all 0.2s ease;
+}
+
+.image-select {
+    display: block;
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 1.2rem;
+    height: 1.2rem;
+    cursor: pointer;
+    accent-color: var(--accent-primary);
+    z-index: 10;
+}
+
+#images-list.batch-mode .image-card {
+    padding-top: 1.5rem;
 }
 
 .image-card:hover {

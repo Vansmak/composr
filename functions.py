@@ -196,6 +196,21 @@ def resolve_compose_file_path(file_path, compose_dir, extra_dirs, logger):
                 return full_path
         except ValueError:
             pass
+        # Host/container path mismatch: a compose label reflects wherever
+        # docker-compose was actually invoked from. If that was the host
+        # directly (e.g. /home/joe/docker/utility/docker-compose.yml) rather
+        # than through this app - which sees that same directory tree at
+        # compose_dir instead, via a bind mount (e.g. /app/docker) - the
+        # exact absolute path won't exist here even though the file does.
+        # Fall back to the project subdirectory + filename (the last two path
+        # segments) resolved against compose_dir, matching how compose files
+        # are actually laid out (one project per subdirectory).
+        parts = file_path.rstrip('/').split('/')
+        if len(parts) >= 2:
+            candidate = os.path.join(compose_dir, parts[-2], parts[-1])
+            if os.path.exists(candidate) and _contained(candidate):
+                logger.debug(f"Found file via host/container path fallback: {candidate}")
+                return candidate
         logger.debug(f"Absolute path does not exist or is outside allowed directories: {file_path}")
     search_dirs = [compose_dir] + [d for d in extra_dirs if d]
     for search_dir in search_dirs:

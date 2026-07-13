@@ -692,9 +692,15 @@
                 <h3>Docker Images</h3>
                 <div class="image-actions">
                     <button onclick="toggleImageView()" class="btn btn-primary" id="toggle-image-view">≡</button>
+                    <button onclick="toggleImageBatchMode()" class="btn btn-secondary" id="toggle-image-batch-mode">Select Multiple</button>
                     <button onclick="pruneImages()" class="btn btn-primary">Prune Images</button>
-                    
+                    <button onclick="removeUnusedImages()" class="btn btn-error">Remove Unused</button>
                 </div>
+            </div>
+            <div id="image-batch-actions" class="batch-actions" style="display: none;">
+                <span id="image-batch-count">0 selected</span>
+                <button onclick="selectAllImages()" class="btn btn-secondary btn-sm">Select All</button>
+                <button onclick="bulkRemoveSelectedImages()" class="btn btn-error btn-sm">Remove Selected</button>
             </div>
             <div id="images-grid-view" class="view active">
                 <div id="images-list" class="images-grid"></div>
