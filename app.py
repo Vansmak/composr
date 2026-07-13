@@ -3032,66 +3032,76 @@ def prune_networks():
         return jsonify({'status': 'error', 'message': str(e)})
 
 
-def perform_batch_action(action, container_ids):
+def perform_batch_action(action, container_ids, container_hosts=None):
     """Perform an action on multiple containers, using Docker Compose when possible"""
+    container_hosts = container_hosts or {}
     results = {
         'success': 0,
         'failed': 0,
         'errors': []
     }
-    
-    # Group containers by compose project for more efficient operations
+
+    # Group containers by (host, compose project) for more efficient operations
     compose_groups = {}
     non_compose_containers = []
-    
+
     for id in container_ids:
+        host = container_hosts.get(id, 'local')
         try:
-            container = client.containers.get(id)
+            host_client = host_manager.get_client(host)
+            if not host_client:
+                results['failed'] += 1
+                results['errors'].append(f"Container {id}: host {host} not available")
+                continue
+
+            container = host_client.containers.get(id)
             project_labels = {k: v for k, v in container.labels.items() if k.startswith('com.docker.compose')}
-            
-            if ('com.docker.compose.project' in project_labels and 
+
+            if ('com.docker.compose.project' in project_labels and
                 'com.docker.compose.service' in project_labels and
                 'com.docker.compose.project.config_files' in project_labels):
-                
+
                 project = project_labels['com.docker.compose.project']
                 service = project_labels['com.docker.compose.service']
                 config_file = project_labels['com.docker.compose.project.config_files']
-                
-                if os.path.exists(config_file):
-                    key = (project, config_file)
+
+                if host == 'local' and os.path.exists(config_file):
+                    key = (host, project, config_file)
                     if key not in compose_groups:
                         compose_groups[key] = []
-                    
+
                     compose_groups[key].append((container, service))
                     continue
-            
+
             # If we get here, it's not a compose container or we couldn't determine compose details
+            # (remote-host compose containers fall back to the Docker API below, since their
+            # config_files path lives on the remote host's filesystem, not this one)
             non_compose_containers.append(container)
-            
+
         except Exception as e:
             logger.error(f"Failed to process container {id} for batch action: {e}")
             results['failed'] += 1
             results['errors'].append(f"Container {id}: {str(e)}")
-    
-    # Process compose groups
-    for (project, config_file), containers in compose_groups.items():
+
+    # Process compose groups (local host only - see note above)
+    for (host, project, config_file), containers in compose_groups.items():
         compose_dir = os.path.dirname(config_file)
         compose_file = os.path.basename(config_file)
-        
+
         # Get list of services in this project
         services = [service for _, service in containers]
-        
+
         try:
             import subprocess
             env = os.environ.copy()
             env["COMPOSE_PROJECT_NAME"] = project
-            
+
             valid_actions = {'start': 'start', 'stop': 'stop', 'restart': 'restart', 'remove': 'rm -sf'}
             if action not in valid_actions:
                 results['failed'] += len(services)
                 results['errors'].append(f"Invalid action: {action}")
                 continue
-            
+
             # Execute the action on all services at once
             cmd = ["docker-compose", "-f", compose_file]
             if action == 'remove':
@@ -3099,9 +3109,9 @@ def perform_batch_action(action, container_ids):
             else:
                 cmd.append(valid_actions[action])
             cmd.extend(services)
-            
+
             logger.info(f"Running batch {action} on project {project}, services: {services}, command: {cmd}")
-            
+
             result = subprocess.run(
                 cmd,
                 check=True,
@@ -3110,10 +3120,10 @@ def perform_batch_action(action, container_ids):
                 text=True,
                 capture_output=True
             )
-            
+
             logger.info(f"Batch {action} on project {project} completed: {result.stdout}")
             results['success'] += len(services)
-            
+
         except subprocess.CalledProcessError as e:
             logger.error(f"Batch {action} on project {project} failed: {e.stderr}")
             results['failed'] += len(services)
@@ -3122,8 +3132,8 @@ def perform_batch_action(action, container_ids):
             logger.error(f"Unexpected error in batch {action} on project {project}: {e}")
             results['failed'] += len(services)
             results['errors'].append(f"Project {project}: {str(e)}")
-    
-    # Process non-compose containers using the Docker API
+
+    # Process non-compose containers (and remote-host compose containers) using the Docker API
     for container in non_compose_containers:
         try:
             if action == 'start':
@@ -3140,30 +3150,28 @@ def perform_batch_action(action, container_ids):
                 results['failed'] += 1
                 results['errors'].append(f"Invalid action: {action}")
                 continue
-            
+
             results['success'] += 1
-            
+
         except Exception as e:
             logger.error(f"Failed to {action} container {container.id}: {e}")
             results['failed'] += 1
             results['errors'].append(f"Container {container.name}: {str(e)}")
-    
+
     return results
 
 @app.route('/api/batch/<action>', methods=['POST'])
 def batch_action(action):
-    if client is None:
-        return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-    
     try:
         data = request.json
         if not data or 'containers' not in data:
             return jsonify({'status': 'error', 'message': 'No containers specified'})
-        
+
         container_ids = data['containers']
+        container_hosts = data.get('container_hosts', {})
         logger.info(f"Received batch {action} request for {len(container_ids)} containers")
-        
-        results = perform_batch_action(action, container_ids)
+
+        results = perform_batch_action(action, container_ids, container_hosts)
         
         if results['failed'] == 0:
             return jsonify({
