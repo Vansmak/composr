@@ -130,39 +130,6 @@ function testHost(hostName, url) {
     });
 }
 
-// Switch to a different Docker host (for current context)
-function switchToHost(hostName) {
-    setLoading(true, `Switching to ${hostName}...`);
-    
-    fetch('/api/hosts/switch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host: hostName })
-    })
-    .then(response => response.json())
-    .then(result => {
-        setLoading(false);
-        if (result.status === 'success') {
-            showMessage('success', result.message);
-            // Reload everything for the new host context
-            loadHostsManagement();
-            if (typeof refreshContainers === 'function') {
-                refreshContainers();
-            }
-            if (typeof loadSystemStatsMultiHost === 'function') {
-                loadSystemStatsMultiHost();
-            }
-        } else {
-            showMessage('error', result.message);
-        }
-    })
-    .catch(error => {
-        setLoading(false);
-        showMessage('error', `Failed to switch to ${hostName}`);
-        console.error('Switch host error:', error);
-    });
-}
-
 // Update the hosts display
 function updateHostsDisplay(hosts, currentHost) {
     const container = document.getElementById('hosts-list-content');
@@ -648,7 +615,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Export functions for use in main.js
-window.switchToHost = switchToHost;
 window.loadHostsList = loadHostsList;
 window.addDockerHost = addDockerHost;
 window.removeHost = removeHost;

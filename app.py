@@ -845,31 +845,6 @@ def test_docker_host():
         logger.error(f"Failed to test Docker host: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
-@app.route('/api/hosts/switch', methods=['POST'])
-def switch_docker_host():
-    """Switch to a different Docker host"""
-    try:
-        data = request.json
-        host = data.get('host')
-        
-        if not host:
-            return jsonify({'status': 'error', 'message': 'Host name is required'})
-        
-        # Switch to the specified host using your HostManager
-        global client
-        client = host_manager.switch_host(host)
-        
-        return jsonify({
-            'status': 'success',
-            'message': f'Successfully switched to {host}'
-        })
-            
-    except Exception as e:
-        logger.error(f"Failed to switch Docker host: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
-##end new
-
-
 # ADD THIS ENTIRE NEW ENDPOINT
 @app.route('/api/containers/all')
 def get_all_containers():

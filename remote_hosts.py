@@ -160,18 +160,6 @@ class HostManager:
             logger.info(f"Removed host {name}")
             return True, f"Host {name} removed successfully"
     
-    def switch_host(self, host_name):
-        """Switch current host context"""
-        if host_name not in self.clients:
-            raise Exception(f"Host {host_name} not available")
-        
-        if not self.connection_status.get(host_name, False):
-            raise Exception(f"Host {host_name} is not connected")
-        
-        self.current_host = host_name
-        logger.info(f"Switched to host {host_name}")
-        return self.clients[host_name]
-    
     def get_client(self, host_name=None):
         """Get Docker client for specific host or current host"""
         target_host = host_name or self.current_host
