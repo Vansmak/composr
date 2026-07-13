@@ -127,16 +127,25 @@ def index():
 def create_backup():
     """Create a comprehensive backup of all containers, compose files, and metadata"""
     try:
-        if client is None:
-            return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-        
         # Get backup options from request
         data = request.json or {}
         include_env_files = data.get('include_env_files', True)
         include_compose_files = data.get('include_compose_files', True)
         backup_name = data.get('backup_name', f"composr-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
-        
-        logger.info(f"Creating backup: {backup_name}")
+        host = data.get('host', 'local')
+
+        host_client = host_manager.get_client(host)
+        if host_client is None:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+
+        # Compose/env files live on this machine's filesystem only - a remote host's
+        # config_files paths aren't reachable from here, so skip copying them for
+        # anything other than the local host rather than bundling the wrong files.
+        if host != 'local':
+            include_env_files = False
+            include_compose_files = False
+
+        logger.info(f"Creating backup: {backup_name} (host={host})")
         
         # 1. Get all containers with full metadata
         containers = []
@@ -148,7 +157,7 @@ def create_backup():
             container_metadata = {}
         
         try:
-            docker_containers = client.containers.list(all=True)
+            docker_containers = host_client.containers.list(all=True)
             logger.info(f"Found {len(docker_containers)} Docker containers")
         except Exception as e:
             logger.error(f"Failed to list Docker containers: {e}")
@@ -232,7 +241,7 @@ def create_backup():
                 'name': backup_name,
                 'created': datetime.now().isoformat(),
                 'composr_version': __version__,
-                'host': 'composr-host',
+                'host': host,
                 'container_count': len(containers),
                 'backup_options': {
                     'include_env_files': include_env_files,
@@ -700,30 +709,38 @@ def restore_backup():
 def preview_backup():
     """Preview what would be included in a backup without creating it"""
     try:
-        if client is None:
-            return jsonify({'status': 'error', 'message': 'Docker service unavailable'})
-        
+        data = request.json or {}
+        host = data.get('host', 'local')
+
+        host_client = host_manager.get_client(host)
+        if host_client is None:
+            return jsonify({'status': 'error', 'message': f'Host {host} not available'})
+
         # Count containers
-        containers = client.containers.list(all=True)
+        containers = host_client.containers.list(all=True)
         container_count = len(containers)
-        
-        # Count compose files
-        compose_files = get_compose_files_cached(COMPOSE_DIR, tuple(EXTRA_COMPOSE_DIRS))
-        compose_count = len(compose_files)
-        
-        # Count env files
-        env_count = 0
-        search_dirs = [COMPOSE_DIR] + [d for d in EXTRA_COMPOSE_DIRS if d and isinstance(d, str)]
-        for search_dir in search_dirs:
-            if os.path.exists(search_dir):
-                for root, dirs, files in os.walk(search_dir):
-                    env_count += files.count('.env')
-        
+
+        # Compose/env files are local-filesystem only (see create_backup) - a remote
+        # host backup won't include them, so the preview shouldn't claim it will.
+        if host == 'local':
+            compose_files = get_compose_files_cached(COMPOSE_DIR, tuple(EXTRA_COMPOSE_DIRS))
+            compose_count = len(compose_files)
+
+            env_count = 0
+            search_dirs = [COMPOSE_DIR] + [d for d in EXTRA_COMPOSE_DIRS if d and isinstance(d, str)]
+            for search_dir in search_dirs:
+                if os.path.exists(search_dir):
+                    for root, dirs, files in os.walk(search_dir):
+                        env_count += files.count('.env')
+        else:
+            compose_count = 0
+            env_count = 0
+
         # Get container metadata count
         container_metadata = load_container_metadata(CONTAINER_METADATA_FILE, logger)
-        metadata_count = len([name for name, meta in container_metadata.items() 
+        metadata_count = len([name for name, meta in container_metadata.items()
                             if meta.get('tags') or meta.get('custom_url')])
-        
+
         return jsonify({
             'status': 'success',
             'preview': {
@@ -734,7 +751,7 @@ def preview_backup():
                 'estimated_size': 'Small (< 1MB)'  # These are just config files
             }
         })
-    
+
     except Exception as e:
         logger.error(f"Failed to preview backup: {e}")
         return jsonify({'status': 'error', 'message': str(e)})

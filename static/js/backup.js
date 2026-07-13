@@ -3,18 +3,67 @@
 // Backup Management Functions
 let backupPreviewData = null;
 
+// Populate the backup host selector from the configured hosts
+function loadBackupHosts() {
+    fetch('/api/hosts')
+        .then(response => response.json())
+        .then(data => {
+            const select = document.getElementById('backup-host-select');
+            if (!select) return;
+
+            const previousValue = select.value || 'local';
+            select.innerHTML = '<option value="local">Local Docker</option>';
+
+            if (data.status === 'success' && data.hosts) {
+                Object.entries(data.hosts).forEach(([hostName, hostInfo]) => {
+                    if (hostName !== 'local' && hostInfo.connected) {
+                        const option = document.createElement('option');
+                        option.value = hostName;
+                        option.textContent = hostInfo.name || hostName;
+                        select.appendChild(option);
+                    }
+                });
+            }
+
+            select.value = previousValue;
+            updateBackupRemoteHostNote();
+        })
+        .catch(error => {
+            console.error('Failed to load hosts for backup:', error);
+        });
+}
+
+// Compose/env files are local-filesystem only - disable those options and show a
+// note when the selected host isn't local (see create_backup/preview_backup in app.py)
+function updateBackupRemoteHostNote() {
+    const select = document.getElementById('backup-host-select');
+    const note = document.getElementById('backup-remote-host-note');
+    const composeCheckbox = document.getElementById('include-compose-files');
+    const envCheckbox = document.getElementById('include-env-files');
+    if (!select) return;
+
+    const isRemote = select.value !== 'local';
+    if (note) note.style.display = isRemote ? 'block' : 'none';
+    if (composeCheckbox) composeCheckbox.disabled = isRemote;
+    if (envCheckbox) envCheckbox.disabled = isRemote;
+}
+
 // Load backup preview when backup tab is opened
 function loadBackupPreview() {
+    updateBackupRemoteHostNote();
     setLoading(true, 'Loading backup preview...');
-    
+
+    const host = document.getElementById('backup-host-select')?.value || 'local';
+
     fetch('/api/backup/preview', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host })
     })
     .then(response => response.json())
     .then(data => {
         setLoading(false);
-        
+
         if (data.status === 'success') {
             backupPreviewData = data.preview;
             updateBackupPreview(data.preview);
@@ -69,10 +118,13 @@ function createBackup() {
         return;
     }
     
+    const host = document.getElementById('backup-host-select')?.value || 'local';
+
     const backupOptions = {
         backup_name: backupName,
         include_env_files: includeEnvFiles,
-        include_compose_files: includeComposeFiles
+        include_compose_files: includeComposeFiles,
+        host: host
     };
     
     setLoading(true, 'Creating backup... This may take a moment.');
@@ -270,7 +322,8 @@ function initializeBackupTab() {
         backupNameInput.value = defaultName;
     }
     
-    // Load preview and history
+    // Load hosts, preview, and history
+    loadBackupHosts();
     loadBackupPreview();
     updateBackupHistoryDisplay();
 }
@@ -292,6 +345,7 @@ function handleBackupFileSelect() {
 // Export backup functions to global scope
 window.createBackup = createBackup;
 window.restoreBackup = restoreBackup;
+window.loadBackupHosts = loadBackupHosts;
 window.loadBackupPreview = loadBackupPreview;
 window.initializeBackupTab = initializeBackupTab;
 window.handleBackupFileSelect = handleBackupFileSelect;

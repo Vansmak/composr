@@ -731,8 +731,15 @@
                         
                         <div class="backup-form">
                             <div class="form-group">
+                                <label for="backup-host-select">Host:</label>
+                                <select id="backup-host-select" class="filter-select" style="max-width: 250px;" onchange="loadBackupPreview()">
+                                    <option value="local">Local Docker</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
                                 <label for="backup-name">Backup Name:</label>
-                                <input type="text" id="backup-name" placeholder="backup-20240115-1030" 
+                                <input type="text" id="backup-name" placeholder="backup-20240115-1030"
                                     class="backup-input">
                             </div>
                             
@@ -747,6 +754,9 @@
                                         Include .env files
                                     </label>
                                 </div>
+                                <p id="backup-remote-host-note" class="hint-text" style="display: none;">
+                                    Compose and .env files live on this machine only and aren't included when backing up a remote host.
+                                </p>
                             </div>
                             
                             <div class="backup-actions">
