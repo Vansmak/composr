@@ -368,7 +368,7 @@ def infer_active_profiles(compose_path, project_name, host_client):
 
 
 def compute_profile_deselection_diff(compose_path, project_name, selected_profiles, host_client):
-    """Determine which services need an explicit stop+rm before 'up', because
+    """Determine which services need an explicit stop before 'up', because
     docker-compose never stops a service whose profile was deselected on its own
     (verified empirically - not even `up --remove-orphans` touches it; it only
     tears down services genuinely removed from the file).

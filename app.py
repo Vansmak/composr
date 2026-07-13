@@ -2445,15 +2445,19 @@ def apply_compose():
 
             # docker-compose never stops a service whose profile was deselected on
             # its own - not even with --remove-orphans - so any service that's
-            # currently present but not in the desired set must be torn down
-            # explicitly before 'up', or it just keeps running untouched.
+            # currently present but not in the desired set must be stopped
+            # explicitly before 'up', or it just keeps running untouched. Stop
+            # only, don't remove: it then shows up as a normal Exited container
+            # in the UI (no custom "ghost card" needed) rather than vanishing
+            # entirely, and 'up -d' happily restarts (or recreates, if the
+            # service's config changed meanwhile) an existing stopped container
+            # when it's set active again - nothing is lost by not removing it.
             for service in deselected:
                 try:
                     log_command(["docker-compose", "-f", compose_filename, "stop", service], compose_dir)
-                    log_command(["docker-compose", "-f", compose_filename, "rm", "-f", service], compose_dir)
-                    logger.info(f"Stopped and removed deselected service: {service}")
+                    logger.info(f"Stopped deselected service: {service}")
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"Failed to retire deselected service {service}: {e.stderr}")
+                    logger.error(f"Failed to stop deselected service {service}: {e.stderr}")
                     return jsonify({'status': 'error', 'message': f'Failed to stop deselected service {service}: {e.stderr}'})
 
             for p in profiles:
