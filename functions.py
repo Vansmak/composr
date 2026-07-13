@@ -174,6 +174,25 @@ def resolve_compose_file_path(file_path, compose_dir, extra_dirs, logger):
     logger.warning(f"Could not resolve compose file: {file_path}")
     return None
 
+def is_path_within_allowed_dirs(full_path, compose_dir, extra_dirs):
+    """Check that full_path resolves inside compose_dir or one of extra_dirs.
+
+    Guards the compose/env file read+write endpoints against an absolute path or a
+    '../' relative path escaping the intended directory tree - resolve_compose_file_path
+    and the env-file endpoints otherwise use whatever path the caller hands them.
+    Uses realpath so symlinks and unnormalized '..' segments can't slip through.
+    """
+    allowed_roots = [os.path.realpath(compose_dir)]
+    for d in (extra_dirs or []):
+        if d:
+            allowed_roots.append(os.path.realpath(d))
+
+    real_path = os.path.realpath(full_path)
+    return any(
+        real_path == root or real_path.startswith(root + os.sep)
+        for root in allowed_roots
+    )
+
 def extract_env_from_compose(compose_file_path, modify_compose=False, logger=None):
     """Extract environment variables from a compose file to create a .env file"""
     try:

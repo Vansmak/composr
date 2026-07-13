@@ -17,9 +17,10 @@ import docker  # Make sure this is imported
 
 # Import helper functions
 from functions import (
-    initialize_docker_client, load_container_metadata, save_container_metadata, 
+    initialize_docker_client, load_container_metadata, save_container_metadata,
     get_compose_files, scan_all_compose_files, resolve_compose_file_path,
-    extract_env_from_compose, calculate_uptime, find_caddy_container, get_compose_files_cached
+    extract_env_from_compose, calculate_uptime, find_caddy_container, get_compose_files_cached,
+    is_path_within_allowed_dirs
 )
 
 
@@ -2153,6 +2154,9 @@ def get_compose():
             return jsonify({'status': 'error', 'message': 'No file path provided'})
         logger.debug(f"Attempting to load compose file: {file_path}")
         full_path = resolve_compose_file_path(file_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if full_path and os.path.exists(full_path) and not is_path_within_allowed_dirs(full_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS):
+            logger.warning(f"Rejected compose file outside allowed directories: {file_path} -> {full_path}")
+            full_path = None
         if full_path and os.path.exists(full_path):
             with open(full_path, 'r') as f:
                 content = f.read()
@@ -2178,7 +2182,10 @@ def save_compose():
         full_path = resolve_compose_file_path(file_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
         if not full_path:
             full_path = os.path.join(COMPOSE_DIR, file_path)
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        if not is_path_within_allowed_dirs(full_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS):
+            logger.warning(f"Rejected compose save outside allowed directories: {file_path} -> {full_path}")
+            return jsonify({'status': 'error', 'message': 'Invalid file path'})
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
         with open(full_path, 'w') as f:
             f.write(content)
         return jsonify({'status': 'success', 'message': 'Compose file saved successfully'})
@@ -2351,6 +2358,9 @@ def get_env_file_content():
         if not file_path:
             return jsonify({'status': 'error', 'message': 'No file path provided'})
         full_path = os.path.join(COMPOSE_DIR, file_path) if not os.path.isabs(file_path) else file_path
+        if not is_path_within_allowed_dirs(full_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS):
+            logger.warning(f"Rejected env file read outside allowed directories: {file_path} -> {full_path}")
+            return jsonify({'status': 'error', 'message': 'Invalid file path'})
         if not os.path.exists(full_path):
             return jsonify({'status': 'error', 'message': 'File not found'})
         with open(full_path, 'r') as f:
@@ -2373,6 +2383,9 @@ def save_env_file():
         file_path = data['path']
         content = data['content']
         full_path = os.path.join(COMPOSE_DIR, file_path) if not os.path.isabs(file_path) else file_path
+        if not is_path_within_allowed_dirs(full_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS):
+            logger.warning(f"Rejected env file save outside allowed directories: {file_path} -> {full_path}")
+            return jsonify({'status': 'error', 'message': 'Invalid file path'})
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         with open(full_path, 'w') as f:
             f.write(content)
