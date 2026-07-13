@@ -49,17 +49,44 @@ def require_login():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
 
+# In-memory login throttle, keyed by remote_addr. Note this is only as accurate as
+# request.remote_addr - behind a reverse proxy (e.g. Caddy) that doesn't forward the
+# real client IP, all requests share one bucket, which still stops a single brute-force
+# script but won't distinguish between different attackers behind the same proxy.
+_login_attempts = {}
+_login_attempts_lock = threading.Lock()
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_SECONDS = 300
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if not AUTH_ENABLED:
         return redirect(url_for('index'))
     error = None
     if request.method == 'POST':
-        if (request.form.get('username') == AUTH_USERNAME and
+        client_ip = request.remote_addr or 'unknown'
+        now = time.time()
+
+        with _login_attempts_lock:
+            attempt = _login_attempts.get(client_ip)
+            locked_until = attempt['locked_until'] if attempt else 0
+
+        if locked_until > now:
+            error = f'Too many failed attempts. Try again in {int(locked_until - now)}s.'
+        elif (request.form.get('username') == AUTH_USERNAME and
                 request.form.get('password') == AUTH_PASSWORD):
+            with _login_attempts_lock:
+                _login_attempts.pop(client_ip, None)
             session['logged_in'] = True
             return redirect(url_for('index'))
-        error = 'Invalid credentials'
+        else:
+            with _login_attempts_lock:
+                attempt = _login_attempts.setdefault(client_ip, {'count': 0, 'locked_until': 0})
+                attempt['count'] += 1
+                if attempt['count'] >= LOGIN_MAX_ATTEMPTS:
+                    attempt['locked_until'] = now + LOGIN_LOCKOUT_SECONDS
+                    attempt['count'] = 0
+            error = 'Invalid credentials'
     return render_template('login.html', error=error)
 
 @app.route('/logout')
@@ -93,6 +120,14 @@ logger.setLevel(log_level)
 
 # Log the startup
 logger.info(f"Composr starting up - Log file: {log_file}, Debug mode: {log_level == logging.DEBUG}")
+
+if not AUTH_ENABLED:
+    logger.warning(
+        "AUTH_ENABLED is false (AUTH_USERNAME/AUTH_PASSWORD not set) - every Composr "
+        "endpoint is reachable without a login, including container exec, compose file "
+        "read/write, and remote host management. Set both env vars if this instance is "
+        "reachable beyond a trusted LAN."
+    )
 
 # Your host_manager is already initialized in remote_hosts.py, just wait for it to be ready
 start_time = time.time()
