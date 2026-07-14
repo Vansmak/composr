@@ -13,7 +13,15 @@ The tool has been useful for me, and I shared it in case others can benefit from
 
 ## Key Features
 
-### Multi-Host Docker Management 🆕
+### Service-Centric Model 🆕
+A service's profile, compose file, and host are attributes you change directly from its own properties, not scattered one-off buttons.
+- **Compose Profiles**: toggle which optional profiles are active for a stack, or mark a core service "Inactive" with one click — line-based file edits that preserve your comments and formatting, immediate redeploy (stopped services show up as a normal `Exited`/`Inactive` status, never just vanish)
+- **Move a Service**: relocate a service from one compose file to another, with a preview showing a diff of both files and warnings for real risks (cross-file `depends_on`, missing `.env` variables, name/port collisions, `network_mode: host` or `build:` services that may not survive the move) before you confirm
+- **Per-Stack Deploy Host**: send a stack to run on a specific connected host — if that host is offline, the deploy is refused outright, never silently redirected to local
+- **Port-Conflict Resolution**: before any deploy, published ports are checked against the target host — a conflict shows exactly what's holding it, suggests a free port, or offers a different (architecture-aware) host instead
+- **Properties Panel**: the container popup leads with Profile / Compose file / Host as live controls, existing actions (logs, inspect, terminal, repull, remove) below
+
+### Multi-Host Docker Management
 - **Centralized Control**: Manage multiple Docker hosts from a single Composr interface
 - **Host Discovery**: Connect to remote Docker hosts via TCP connections
 - **Cross-Host Deployment**: Deploy compose projects to any connected Docker host
@@ -109,6 +117,8 @@ services:
 
 ### Security Considerations
 ⚠️ **Important**: Only enable the Docker Remote API on trusted networks. For production environments, consider using TLS certificates for secure connections.
+
+Composr logs a startup warning if `AUTH_USERNAME`/`AUTH_PASSWORD` aren't set, since every endpoint (including container exec and compose file read/write) is open without them. When auth is enabled, `/login` has basic rate-limiting (5 attempts, 5 minute lockout per source).
 
 ## Project Creation Wizard
 

@@ -32,7 +32,7 @@ from functions import (
 from remote_hosts import host_manager
 
 # Add after imports
-__version__ = "1.8.5"
+__version__ = "2.0.0"
 # Cache-busting suffix for local static assets, set once at process startup.
 # Without this, browsers can keep serving a stale main.js/styles.css
 # indefinitely across redeploys since the template references them with no

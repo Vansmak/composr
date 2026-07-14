@@ -1,6 +1,31 @@
 # Changelog
 All notable changes to Composr will be documented in this file.
 
+## [2.0.0] - 2026-07-14
+
+### Added
+- **🎯 Service-Centric Model**: a service's profile, compose file, and host are now attributes you change directly, not scattered one-off buttons
+  - **Compose Profiles**: select which optional profiles are active for a stack (toggle chips + Deploy in the stack modal), and mark any core service "Inactive" with one click — edits the file with a line-based insert/removal (never rewrites the whole file, so comments and formatting survive) and immediately redeploys, stopping (not removing) the container so it shows up as a normal `Exited`/`Inactive` status rather than vanishing
+  - **Move a Service**: move a service from one compose file to another via the container popup — two-step preview/commit flow shows a diff of both files and flags real risks before you confirm (cross-file `depends_on`, top-level volumes/networks the target doesn't declare, `${VAR}` references missing from the target's `.env`, name/port collisions, and `network_mode: host` or `build:` services that may not be portable to a different location)
+  - **Per-Stack Deploy Host**: send a stack to a specific connected host from its properties — file stays local, only where the containers run changes. If the target host is offline, the deploy is refused outright rather than silently landing on local (no silent fallback, ever)
+  - **Port-Conflict Resolution**: before any deploy, host ports are checked against what's already published on the target — a conflict shows which container holds it, suggests the nearest free port, or offers to deploy to a different connected (and architecture-aware) host instead
+  - **Service Properties Panel**: the container "More" popup now leads with Profile / Compose file / Host as live attribute-changers, with the existing logs/inspect/terminal/repull/remove actions below
+- **Images — Multi-Select & Bulk Remove**: "Select Multiple" toggle with checkboxes (grid and table view) to remove several images at once, instead of one at a time
+- **Intermittent Host Support**: mark a host as "expect offline" (e.g. a Windows Docker Desktop PC that isn't always on) so it shows as paused rather than an error — display only, doesn't relax the no-silent-fallback deploy rule
+
+### Fixed
+- **Security**: path traversal in the compose/env file read+write endpoints — an absolute or `../` path could escape the configured compose directory; now resolved and validated against the allowed directories before every read or write
+- **Security**: `remote_hosts.py`'s background health-check thread mutated shared connection state without a lock, racing request threads — could produce a "dictionary changed size during iteration" error under real concurrent use
+- **Security**: batch container actions (start/stop/restart/remove) ignored which host a selected container was actually on in multi-host setups, always acting against the local/last-switched host instead
+- **Security**: startup now logs a clear warning when running without `AUTH_USERNAME`/`AUTH_PASSWORD` set, and `/login` has basic rate-limiting (5 attempts, 5 minute lockout) — was previously unlimited
+- **Backup**: `create_backup`/`preview_backup` now accept a `host` parameter and correctly resolve a per-host Docker client, instead of always operating on local regardless of which host was intended
+- **Images**: "Prune Images" had a duplicate event listener causing every click to fire the request twice — the second request would hit Docker's daemon-level prune lock and fail with "a prune operation is already running"
+- **Stale static assets**: local JS/CSS files had no cache-busting at all, so a browser could keep serving old code indefinitely across upgrades — every static asset now carries a version query string that changes on each restart
+- Removed a substantial amount of dead code left over from the pre-multi-host "bookmark era" (unreachable duplicate endpoints, orphaned functions, dead frontend call sites) with no behavior change for anything actually reachable from the UI
+
+### Changed
+- The module-level Docker client global was removed entirely — every endpoint now resolves its own per-request, per-host client, closing a class of "wrong host in multi-host setups" bugs at the root
+
 ## [1.8.2] - 2026-04-09
 ### Fixed
 - **Container Updates**: Fixed rollback endpoint calling `deploy_updated_compose` with missing `host_manager` argument — rollbacks would crash with a `TypeError`
