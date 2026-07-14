@@ -782,12 +782,13 @@ function renderContainers(containers) {
     updateStackFilterOptions(Array.from(allStacks));
     updateHostFilterOptions(Array.from(allHosts));
 
-    // Ghost cards for profile-gated services that exist in a stack's compose
-    // file but have no running container right now (grid view only for now -
-    // fire-and-forget, appends once resolved so it never blocks the main render).
-    if (!isTableViewActive) {
-        loadGhostServiceCards(containers);
-    }
+    // Service profile state, in both views: a grayed-out placeholder for a
+    // profile-gated service with no container at all right now, and an
+    // "Inactive" badge overriding the generic Exited status for a service
+    // that DOES have a container but is deliberately profile-gated off
+    // (distinct from one that just crashed or was manually stopped).
+    // Fire-and-forget, applied once resolved so it never blocks the main render.
+    loadServiceProfileIndicators(containers, isTableViewActive);
 
     console.log(`Rendered ${containers.length} containers`);
 }
@@ -821,12 +822,51 @@ function renderGhostServiceCard(ghost, parentElement) {
     parentElement.appendChild(card);
 }
 
-// For each distinct (stack, compose file, host) in the current container list,
-// check whether its compose file defines profile-gated services with no
-// container present right now, and render a ghost card for each one found.
-async function loadGhostServiceCards(containers) {
+// Table-view equivalent of renderGhostServiceCard - same column count as a
+// real row (checkbox, name, stack, status, uptime, ports, host, actions).
+function renderGhostServiceRow(ghost, tableBody) {
+    const row = document.createElement('tr');
+    row.className = 'container-row-ghost';
+    row.dataset.ghost = 'true';
+    row.style.opacity = '0.55';
+
+    row.innerHTML = `
+        <td></td>
+        <td><span class="container-name" title="${ghost.service} (not deployed)">${ghost.service}</span></td>
+        <td>${ghost.stackName}</td>
+        <td><span class="status-stopped" title="Profile '${ghost.profile}' is not selected for this deploy">profile: ${ghost.profile} (off)</span></td>
+        <td>—</td>
+        <td>Not deployed</td>
+        <td><span class="host-badge-small">${ghost.host}</span></td>
+        <td>
+            <button class="btn btn-secondary btn-sm" onclick="showStackDetailsModal('${ghost.stackName}', '${ghost.composeFile}', '${ghost.host}')">
+                Open Stack to Enable
+            </button>
+        </td>
+    `;
+    tableBody.appendChild(row);
+}
+
+// Overrides the generic Exited status badge with a clearer "Inactive" one for
+// a container whose service is deliberately profile-gated off - otherwise
+// indistinguishable in the UI from a crash or a manual stop.
+function markContainerInactive(containerId) {
+    const statusEl = document.querySelector(`[data-id="${containerId}"] span[class^="health-"]`);
+    if (!statusEl) return;
+    statusEl.className = 'status-inactive';
+    statusEl.textContent = 'inactive';
+    statusEl.title = "Profile 'inactive' - stopped deliberately, not a crash";
+}
+
+// For each distinct (stack, compose file, host) in the current container
+// list: render a ghost row/card for any profile-gated service with no
+// container at all right now, and mark any EXISTING container whose service
+// is in the "inactive" profile with a clear status override.
+async function loadServiceProfileIndicators(containers, isTableViewActive) {
     const containersList = document.getElementById('containers-list');
-    if (!containersList || !Array.isArray(containers) || !containers.length) return;
+    const tableBody = document.getElementById('table-body') || document.querySelector('#table-view tbody');
+    const ghostParent = isTableViewActive ? tableBody : containersList;
+    if (!ghostParent || !Array.isArray(containers) || !containers.length) return;
 
     const stacks = new Map();
     containers.forEach(c => {
@@ -835,10 +875,10 @@ async function loadGhostServiceCards(containers) {
         const host = c.host || 'local';
         const key = `${stackName}|${c.compose_file}|${host}`;
         if (!stacks.has(key)) {
-            stacks.set(key, { stackName, composeFile: c.compose_file, host, presentServices: new Set() });
+            stacks.set(key, { stackName, composeFile: c.compose_file, host, presentServices: new Map() });
         }
         if (c.compose_service) {
-            stacks.get(key).presentServices.add(c.compose_service);
+            stacks.get(key).presentServices.set(c.compose_service, c.id);
         }
     });
 
@@ -852,7 +892,14 @@ async function loadGhostServiceCards(containers) {
             Object.entries(data.profiles).forEach(([profileName, services]) => {
                 services.forEach(serviceName => {
                     if (!presentServices.has(serviceName)) {
-                        renderGhostServiceCard({ stackName, composeFile, host, service: serviceName, profile: profileName }, containersList);
+                        const ghost = { stackName, composeFile, host, service: serviceName, profile: profileName };
+                        if (isTableViewActive) {
+                            renderGhostServiceRow(ghost, ghostParent);
+                        } else {
+                            renderGhostServiceCard(ghost, ghostParent);
+                        }
+                    } else if (profileName === 'inactive') {
+                        markContainerInactive(presentServices.get(serviceName));
                     }
                 });
             });

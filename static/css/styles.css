@@ -414,10 +414,24 @@ header {
     border: 1px solid var(--accent-success);
 }
 
-.status-stopped { 
+.status-stopped {
     background: var(--bg-error-subtle);
     color: var(--accent-error);
     border: 1px solid var(--accent-error);
+}
+
+/* Deliberately profile-gated off, not a crash/manual stop - distinct from
+   .status-stopped so it doesn't read as an error. */
+.status-inactive {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    background: rgba(99, 102, 241, 0.12);
+    color: var(--accent-primary);
+    border: 1px solid var(--accent-primary);
 }
 
 .uptime-badge {

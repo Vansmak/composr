@@ -633,8 +633,15 @@ def _scan_move_warnings(source_path, target_path, service_name, block_lines, tar
                 f"{service_name} uses top-level {key} ({', '.join(sorted(missing))}) declared in {source_base} but not in {target_base} - add them there too."
             )
 
-    # c) ${VAR} references vs the target directory's .env
-    var_refs = set(re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)', block_text))
+    # c) ${VAR} references vs the target directory's .env - skip anything with
+    # a shell-style fallback (${VAR:-default}, ${VAR-default}) since those are
+    # safe even genuinely undefined; only a bare ${VAR} is actually at risk.
+    var_refs = set()
+    for match in re.finditer(r'\$\{([A-Za-z_][A-Za-z0-9_]*)([^}]*)\}', block_text):
+        var_name, modifier = match.groups()
+        if modifier.startswith((':-', '-', ':?', '?')):
+            continue
+        var_refs.add(var_name)
     if var_refs:
         env_path = os.path.join(os.path.dirname(target_path), '.env')
         env_keys = set()
@@ -651,7 +658,22 @@ def _scan_move_warnings(source_path, target_path, service_name, block_lines, tar
                 f"{os.path.dirname(target_path)}/.env - may be undefined after the move unless set elsewhere."
             )
 
-    # d) service-name / container_name collision in target
+    # d) build: context - moving to a different compose project changes the
+    # image tag compose derives (project-prefixed, e.g. media-svc ->
+    # utility-svc), so a cached image from the old project won't be reused -
+    # compose will try to rebuild, which fails if the build context path
+    # isn't reachable from wherever this app's own container runs (confirmed
+    # live: /home/joe/projects isn't mounted into this container, only
+    # /home/joe/docker is, so a move away from a build: service's original
+    # project can silently strand it with no running container at all).
+    if isinstance(moving_cfg.get('build'), (str, dict)):
+        warnings.append(
+            f"{service_name} uses build: - moving to a different compose project means a new image must be built there "
+            f"(the old project's cached image won't be reused). This will fail if the build context isn't reachable from "
+            f"wherever compose actually runs. Consider adding an explicit image: pointing at the existing built image instead."
+        )
+
+    # e) service-name / container_name collision in target
     if service_name in target_services:
         warnings.append(f"A service named {service_name} already exists in {target_base}.")
     moving_container_name = moving_cfg.get('container_name')
