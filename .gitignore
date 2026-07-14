@@ -12,6 +12,10 @@ ENV/
 .vscode/
 .idea/
 *.sublime-*
+.claude/
+
+# Internal working docs
+REVIEW.md
 
 # Logs and data
 *.log
