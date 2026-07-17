@@ -781,12 +781,48 @@ class ContainerUpdateManager:
                     'message': f'Successfully updated and restarted {service}',
                     'output': up_result.stdout
                 }
-            else:
-                return {
-                    'success': False,
-                    'error': f'Deploy failed: {up_result.stderr}',
-                    'output': up_result.stdout
-                }
+
+            # See repull_compose_container's identical fix below for why this
+            # retry-after-cleanup exists - same --force-recreate-on-a-fixed-
+            # container_name failure mode, same fix, this is just the
+            # auto-update path's copy of it rather than the scheduled-repull
+            # path's.
+            conflict_match = re.search(
+                r'container name "/[^"]+" is already in use by container "([a-f0-9]+)"',
+                up_result.stderr
+            )
+            if conflict_match:
+                stale_id = conflict_match.group(1)
+                logger.warning(f"Recreate of {service} hit a stale container from a previous failed "
+                                f"recreate ({stale_id}) - removing it and retrying once.")
+                try:
+                    client = host_manager.get_client(host)
+                    if client:
+                        stale_container = client.containers.get(stale_id)
+                        if stale_container.status != 'running':
+                            stale_container.remove(force=True)
+                        else:
+                            return {'success': False, 'error': f'Deploy failed: {up_result.stderr}', 'output': up_result.stdout}
+                except docker.errors.NotFound:
+                    pass
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to remove stale container {stale_id} for {service}: {cleanup_error}")
+                    return {'success': False, 'error': f'Deploy failed: {up_result.stderr}', 'output': up_result.stdout}
+
+                retry_result = subprocess.run(up_cmd, cwd=compose_dir, env=env, capture_output=True, text=True, timeout=300)
+                if retry_result.returncode == 0:
+                    return {
+                        'success': True,
+                        'message': f'Successfully updated and restarted {service} (after clearing a stale container)',
+                        'output': retry_result.stdout
+                    }
+                return {'success': False, 'error': f'Deploy failed after retry: {retry_result.stderr}', 'output': retry_result.stdout}
+
+            return {
+                'success': False,
+                'error': f'Deploy failed: {up_result.stderr}',
+                'output': up_result.stdout
+            }
 
         except subprocess.TimeoutExpired:
             return {
@@ -1106,8 +1142,54 @@ class ContainerUpdateManager:
 
             if up_result.returncode == 0:
                 return {'success': True, 'message': f'Successfully repulled {service}'}
-            else:
-                return {'success': False, 'error': f'Recreate failed: {up_result.stderr}'}
+
+            # --force-recreate on a service pinned to a fixed container_name
+            # briefly renames the old container out of the way while it
+            # creates the new one, then removes the old one - if that gets
+            # interrupted (this whole process restarting mid-recreate, a
+            # concurrent recreate of the same service, etc.), the
+            # hash-prefixed leftover blocks every future recreate with the
+            # exact same "name already in use" conflict forever, since
+            # nothing ever cleans it up. Confirmed in production: sonarr and
+            # jellyfin were left fully removed and sabnzbd stuck at Created
+            # after this looped unattended (2026-07-17 incident). One bounded
+            # retry after removing *only* the specific container the daemon
+            # named in the conflict - never a broader sweep - is enough to
+            # break the loop without turning this into a general-purpose
+            # cleanup pass.
+            conflict_match = re.search(
+                r'container name "/[^"]+" is already in use by container "([a-f0-9]+)"',
+                up_result.stderr
+            )
+            if conflict_match:
+                stale_id = conflict_match.group(1)
+                logger.warning(f"Recreate of {service} hit a stale container from a previous failed "
+                                f"recreate ({stale_id}) - removing it and retrying once.")
+                try:
+                    client = host_manager.get_client(host)
+                    if client:
+                        stale_container = client.containers.get(stale_id)
+                        # Only ever remove it if it's not actually running -
+                        # a running container being "in the way" of a name
+                        # it doesn't hold is not a state this conflict error
+                        # can describe, but checking costs nothing and this
+                        # must never remove a live container.
+                        if stale_container.status != 'running':
+                            stale_container.remove(force=True)
+                        else:
+                            return {'success': False, 'error': f'Recreate failed: {up_result.stderr}'}
+                except docker.errors.NotFound:
+                    pass  # already gone - fine, proceed to retry
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to remove stale container {stale_id} for {service}: {cleanup_error}")
+                    return {'success': False, 'error': f'Recreate failed: {up_result.stderr}'}
+
+                retry_result = subprocess.run(up_cmd, cwd=compose_dir, env=env, capture_output=True, text=True, timeout=300)
+                if retry_result.returncode == 0:
+                    return {'success': True, 'message': f'Successfully repulled {service} (after clearing a stale container)'}
+                return {'success': False, 'error': f'Recreate failed after retry: {retry_result.stderr}'}
+
+            return {'success': False, 'error': f'Recreate failed: {up_result.stderr}'}
 
         except Exception as e:
             logger.error(f"Failed to repull compose container: {e}")

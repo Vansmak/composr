@@ -112,9 +112,18 @@ function renderContainersAsTable(containers) {
     }
 
     noContainers.style.display = 'none';
-    
+
     // Update table headers for current grouping
     updateTableHeaders();
+
+    // Stack column is only redundant when grouped by stack - each row then
+    // sits under a stack-header row already naming it. Grouped by host, or
+    // ungrouped, the Stack column is the only place that info shows at all,
+    // so a mobile CSS rule keyed off this class must not hide it there.
+    const containerTableEl = document.getElementById('container-table');
+    if (containerTableEl) {
+        containerTableEl.classList.toggle('grouped-by-stack', group === 'stack');
+    }
 
     // Render based on grouping
     if (group === 'stack') {
@@ -180,17 +189,17 @@ function renderContainersByStackAsTable(containers) {
         headerRow.className = 'stack-header-row';
         headerRow.innerHTML = `
             <td colspan="8">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="margin: 0; font-size: 1.1rem;" onclick="showStackDetailsModal('${stackName}', '${composeFile || ''}')">${stackName}</h3>
-                    <div style="display: flex; align-items: center; gap: 1rem;">
-                        <div class="stack-stats" style="display: flex; gap: 1rem;">
+                <div class="stack-header-content">
+                    <h3 class="stack-header-title" onclick="showStackDetailsModal('${stackName}', '${composeFile || ''}')">${stackName}</h3>
+                    <div class="stack-header-actions">
+                        <div class="stack-stats">
                             <span title="Container count">${stats.running}/${stats.total} running</span>
                             <span title="Total CPU usage">CPU: ${stats.cpu}%</span>
                             <span title="Total memory usage">Mem: ${stats.memory} MB</span>
                         </div>
-                        <button class="btn btn-secondary btn-sm" style="padding: 0.25rem 0.75rem; font-size: 1.25rem;" onclick="showStackDetailsModal('${stackName}', '${composeFile || ''}')">
+                        <button class="btn btn-secondary btn-sm stack-header-icon-btn" onclick="showStackDetailsModal('${stackName}', '${composeFile || ''}')">
                             🐳
-                        </button>    
+                        </button>
                     </div>
                 </div>
             </td>
@@ -235,17 +244,17 @@ function renderContainersByHostAsTable(containers) {
         headerRow.className = 'stack-header-row';
         headerRow.innerHTML = `
             <td colspan="8">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="margin: 0; font-size: 1.1rem;">🖥️ ${hostDisplay}</h3>
-                    <div style="display: flex; align-items: center; gap: 1rem;">
-                        <div class="stack-stats" style="display: flex; gap: 1rem;">
+                <div class="stack-header-content">
+                    <h3 class="stack-header-title">🖥️ ${hostDisplay}</h3>
+                    <div class="stack-header-actions">
+                        <div class="stack-stats">
                             <span title="Container count">${stats.running}/${stats.total} running</span>
                             <span title="Total CPU usage">CPU: ${stats.cpu}%</span>
                             <span title="Total memory usage">Mem: ${stats.memory} MB</span>
                         </div>
-                        <button class="btn btn-secondary btn-sm" onclick="showHostDetailsModal('${host}')">
+                        <button class="btn btn-secondary btn-sm stack-header-icon-btn" onclick="showHostDetailsModal('${host}')">
                             📊
-                        </button>    
+                        </button>
                     </div>
                 </div>
             </td>
@@ -345,7 +354,7 @@ function renderContainersByTagAsTable(containers) {
         headerRow.className = 'stack-header-row';
         headerRow.innerHTML = `
             <td colspan="8">
-                <h3 style="margin: 0; font-size: 1.1rem;">${tag}</h3>
+                <h3 class="stack-header-title">${tag}</h3>
             </td>
         `;
         tableBody.appendChild(headerRow);

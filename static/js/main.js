@@ -117,8 +117,13 @@ function saveViewPreference(viewType) {
 function loadViewPreference() {
     const savedView = localStorage.getItem('preferredView');
     console.log('Loaded view preference:', savedView);
-    
-    if (savedView === 'table') {
+
+    // A 'table' preference saved from a wider screen (or from toggling it
+    // while testing on this device) shouldn't force table view on mobile -
+    // the 8-column table is a poor fit for narrow viewports regardless of
+    // what was last selected elsewhere. Cards stay the mobile default;
+    // the preference itself is untouched, so desktop keeps seeing table view.
+    if (savedView === 'table' && window.innerWidth > 768) {
         const gridView = document.getElementById('grid-view');
         const tableView = document.getElementById('table-view');
         const toggleButton = document.getElementById('toggle-view');
@@ -729,7 +734,17 @@ function renderContainers(containers) {
 
     // Determine which view is currently active
     const isTableViewActive = tableView && tableView.classList.contains('active');
-    
+
+    // Mobile gets its own purpose-built navigation - stacks list, tap one to
+    // see its containers, tap a container for commands/info - rather than
+    // reusing the desktop grid or table shrunk down. Batch mode (bulk
+    // select/act across many containers) doesn't fit that drill-down model,
+    // so it falls back to the ordinary compact card grid instead.
+    if (window.innerWidth <= 768 && !isBatchMode && window.renderMobileDrillDown) {
+        window.renderMobileDrillDown(containers);
+        return;
+    }
+
     // Choose rendering method based on active view
     if (isTableViewActive) {
         console.log('Rendering containers as table');
@@ -1365,7 +1380,19 @@ function renderSingleContainer(container, parentElement) {
     `;
 
     parentElement.appendChild(card);
-    
+
+    // Mobile compact list: rows show just name+status by default (host,
+    // uptime, ports, Start/Stop/Restart are hidden via CSS on narrow
+    // screens - see .container-card:not(.expanded) rules) and tapping the
+    // row reveals them. Skips buttons/links (their own onclick already
+    // handles the tap) and skips entirely in batch mode, where a card tap
+    // is for selection, not expansion. No-op on desktop - nothing there is
+    // hidden by default, so toggling '.expanded' has nothing to reveal.
+    card.addEventListener('click', (e) => {
+        if (document.getElementById('containers-list').classList.contains('batch-mode')) return;
+        if (e.target.closest('button, a, .container-name')) return;
+        card.classList.toggle('expanded');
+    });
 
     if (isBatchMode) {
         const checkbox = document.createElement('input');
@@ -1757,12 +1784,21 @@ function showContainerPopup(id, name, host = 'local') {
             composeService = labels['com.docker.compose.service'] || '';
         }
 
+        const status = inspectData.status === 'success' ? (inspectData.data.State?.Status || '') : '';
+        const isRunning = status === 'running';
+
         const popup = document.createElement('div');
         popup.className = 'logs-modal';
         popup.innerHTML = `
             <div class="modal-header">
-                <h3>${name} <span class="host-badge-small">${host}</span></h3>
+                <h3>${name} <span class="host-badge-small">${host}</span>${composeProject ? ` <span class="host-badge-small">${composeProject}</span>` : ''}</h3>
                 <span class="close-x" onclick="this.closest('.logs-modal').remove()">×</span>
+            </div>
+
+            <div class="actions" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+                <button class="btn btn-success" onclick="containerAction('${id}', 'start', '${host}')" ${isRunning ? 'disabled' : ''}>Start</button>
+                <button class="btn btn-error" onclick="containerAction('${id}', 'stop', '${host}')" ${!isRunning ? 'disabled' : ''}>Stop</button>
+                <button class="btn btn-primary" onclick="containerAction('${id}', 'restart', '${host}')" ${!isRunning ? 'disabled' : ''}>Restart</button>
             </div>
 
             ${composeService ? `<div class="container-properties-panel" style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(128,128,128,0.08); border-radius: 6px;">
@@ -4492,10 +4528,18 @@ function getContainerHealth(container) {
     const issues = [];
     let healthLevel = 'healthy'; // healthy, warning, error
     
-    // Check container status
+    // Check container status. A stopped/restarting container that still belongs to a
+    // compose project is a managed service that's transiently down (mid-redeploy, a
+    // port conflict, etc.) - not an abandoned/orphaned container safe to delete. Only
+    // flag those as 'error' (red); compose-managed ones get 'warning' (amber) instead,
+    // since the batch-select UI colors by this level and red had been read as "safe to
+    // remove", which deleted a live media stack on 2026-07-15.
     if (container.status !== 'running') {
-        issues.push(`Container is ${container.status}`);
-        healthLevel = 'error';
+        const isOrphaned = !(container.compose_project && container.compose_project.trim());
+        issues.push(isOrphaned
+            ? `Container is ${container.status} (not part of any compose stack)`
+            : `Container is ${container.status} (part of stack "${container.compose_project}" - may just be mid-redeploy)`);
+        healthLevel = isOrphaned ? 'error' : 'warning';
     }
     
     // Check uptime (if container keeps restarting)

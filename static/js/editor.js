@@ -73,6 +73,13 @@ function setCodeMirrorLanguage(elementId, language) {
     }
 }
 
+function refreshCodeMirrorEditor(elementId) {
+    const editor = codeMirrorEditors[elementId];
+    if (editor) {
+        editor.refresh();
+    }
+}
+
 function initCodeMirrorLoader() {
     console.log('CodeMirror loader initialized');
 }

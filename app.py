@@ -24,7 +24,8 @@ from functions import (
     compute_profile_deselection_diff, infer_active_profiles, compute_service_move,
     commit_service_move, compute_move_confirm_token, find_container_holding_port,
     diagnose_docker_failure, check_deploy_port_conflicts, compute_desired_active_services,
-    change_service_port, get_host_port_map, suggest_free_port, get_host_network_services
+    change_service_port, get_host_port_map, suggest_free_port, get_host_network_services,
+    get_service_summaries, get_service_fields, set_service_fields
 )
 
 
@@ -2677,6 +2678,169 @@ def change_service_port_endpoint():
         return jsonify({'status': 'error', 'message': str(e)})
 
 
+@app.route('/api/compose/services')
+def list_compose_services():
+    """Service picker list for the field-form editor: name/image/restart/port
+    count per service in a compose file. Read-only."""
+    try:
+        file_path = request.args.get('file')
+        if not file_path:
+            return jsonify({'status': 'error', 'message': 'file is required'})
+
+        full_path = resolve_compose_file_path(file_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if not full_path or not os.path.exists(full_path):
+            return jsonify({'status': 'error', 'message': f'Compose file {file_path} not found'})
+
+        services = get_service_summaries(full_path)
+        return jsonify({'status': 'success', 'services': services})
+    except Exception as e:
+        logger.error(f"Failed to list compose services: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@app.route('/api/compose/service')
+def get_compose_service():
+    """Structured fields for one service, for the field-form editor. Read-only."""
+    try:
+        file_path = request.args.get('file')
+        service = request.args.get('service')
+        if not file_path or not service:
+            return jsonify({'status': 'error', 'message': 'file and service are required'})
+
+        full_path = resolve_compose_file_path(file_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if not full_path or not os.path.exists(full_path):
+            return jsonify({'status': 'error', 'message': f'Compose file {file_path} not found'})
+
+        result = get_service_fields(full_path, service)
+        if result is None:
+            return jsonify({'status': 'error', 'message': f'Service {service} not found'})
+        return jsonify({'status': 'success', **result})
+    except Exception as e:
+        logger.error(f"Failed to load compose service fields: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@app.route('/api/compose/service', methods=['POST'])
+def save_compose_service():
+    """Save one service's fields from the field-form editor - rewrites just
+    that service's block (see set_service_fields' docstring for what is and
+    isn't preserved)."""
+    try:
+        data = request.json or {}
+        file_path = data.get('file')
+        service = data.get('service')
+        fields = data.get('fields')
+        style = data.get('style') or {}
+        extras_yaml = data.get('extras_yaml', '')
+
+        if not file_path or not service or not isinstance(fields, dict):
+            return jsonify({'status': 'error', 'message': 'file, service, and fields are required'})
+
+        full_path = resolve_compose_file_path(file_path, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if not full_path or not os.path.exists(full_path):
+            return jsonify({'status': 'error', 'message': f'Compose file {file_path} not found'})
+
+        ok, message = set_service_fields(full_path, service, fields, style, extras_yaml, logger)
+        return jsonify({'status': 'success' if ok else 'error', 'message': message})
+    except Exception as e:
+        logger.error(f"Failed to save compose service fields: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@app.route('/api/service/redeploy', methods=['POST'])
+def redeploy_service():
+    """Recreate one service in place after a field-form save - scoped to just
+    that service rather than apply_compose's whole-stack down/up, since
+    editing one field shouldn't restart every other service in the stack.
+    pull=True pulls the image first: 'up -d' alone won't refresh an
+    already-present local tag (e.g. :latest or :custom pointing at newer
+    upstream content), it only pulls when the tag is missing locally, so a
+    tag change needs an explicit pull to actually take effect. --force-recreate
+    is unconditional, matching repull_container's existing precedent, so the
+    save takes effect even for a field docker-compose's own diff detection
+    might not catch."""
+    try:
+        data = request.json or {}
+        compose_file = data.get('file')
+        service = data.get('service')
+        pull = bool(data.get('pull', False))
+        host = data.get('host', 'local')
+
+        if not compose_file or not service:
+            return jsonify({'status': 'error', 'message': 'file and service are required'})
+
+        full_path = resolve_compose_file_path(compose_file, COMPOSE_DIR, EXTRA_COMPOSE_DIRS, logger)
+        if not full_path or not os.path.exists(full_path):
+            return jsonify({'status': 'error', 'message': f'Compose file {compose_file} not found'})
+
+        compose_dir = os.path.dirname(full_path)
+        compose_filename = os.path.basename(full_path)
+
+        with open(full_path, 'r') as f:
+            compose_data = yaml.safe_load(f) or {}
+        project_name = compose_data.get('name', os.path.basename(compose_dir))
+
+        hosts_status = host_manager.get_hosts_status()
+        if host != 'local':
+            host_info = hosts_status.get(host)
+            if not host_info or not host_info.get('connected'):
+                logger.warning(f"Refusing to redeploy {service} - target host {host} is offline")
+                return jsonify({
+                    'status': 'error',
+                    'error_type': 'host_offline',
+                    'host': host,
+                    'message': f'Target host "{host}" is offline - the deploy was NOT sent to local as a fallback.'
+                })
+
+        target_host_client = host_manager.get_client(host)
+        if target_host_client:
+            conflicts = check_deploy_port_conflicts(full_path, project_name, {service}, target_host_client)
+            if conflicts:
+                logger.warning(f"Port conflict redeploying {service} on {host}: {conflicts}")
+                return jsonify({
+                    'status': 'error',
+                    'error_type': 'port_conflict',
+                    'host': host,
+                    'conflicts': conflicts,
+                    'message': f"Port conflict on {host}: " + '; '.join(
+                        f"{c['port']} used by {c['container_name']}" for c in conflicts
+                    )
+                })
+
+        import subprocess
+        env = os.environ.copy()
+        env["COMPOSE_PROJECT_NAME"] = project_name
+        if host != 'local':
+            env['DOCKER_HOST'] = hosts_status[host]['url']
+
+        if pull:
+            logger.info(f"Pulling image for service {service} in {compose_file} on {host}")
+            try:
+                subprocess.run(
+                    ["docker-compose", "-f", compose_filename, "pull", service],
+                    check=True, cwd=compose_dir, env=env, text=True, capture_output=True
+                )
+            except subprocess.CalledProcessError as e:
+                diagnosis = diagnose_docker_failure(e.stderr, logger, host_client=target_host_client, host_name=host)
+                return jsonify({'status': 'error', 'message': f'Failed to pull image for {service}: {e.stderr}', 'diagnosis': diagnosis})
+
+        logger.info(f"Recreating service {service} in {compose_file} on {host} (pull={pull})")
+        try:
+            subprocess.run(
+                ["docker-compose", "-f", compose_filename, "up", "-d", "--force-recreate", service],
+                check=True, cwd=compose_dir, env=env, text=True, capture_output=True
+            )
+        except subprocess.CalledProcessError as e:
+            diagnosis = diagnose_docker_failure(e.stderr, logger, host_client=target_host_client, host_name=host)
+            return jsonify({'status': 'error', 'message': f'Failed to recreate {service}: {e.stderr}', 'diagnosis': diagnosis})
+
+        message = f'{service} pulled and redeployed on {host}' if pull else f'{service} redeployed on {host}'
+        return jsonify({'status': 'success', 'message': message})
+    except Exception as e:
+        logger.error(f"Failed to redeploy service: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
 @app.route('/api/hosts/deploy-candidates')
 def get_deploy_candidates():
     """Connected hosts other than the one that just hit a port conflict,
@@ -3764,7 +3928,10 @@ def perform_batch_action(action, container_ids, container_hosts=None):
             results['failed'] += len(services)
             results['errors'].append(f"Project {project}: {str(e)}")
 
-    # Process non-compose containers (and remote-host compose containers) using the Docker API
+    # Process non-compose containers (and remote-host compose containers) using the Docker API.
+    # This path bypasses docker-compose entirely, so unlike the compose_groups branch above
+    # it has no natural place to log success - added explicitly here after a batch remove
+    # silently deleted a live media stack with zero trace in the log (2026-07-15 incident).
     for container in non_compose_containers:
         try:
             if action == 'start':
@@ -3774,6 +3941,8 @@ def perform_batch_action(action, container_ids, container_hosts=None):
             elif action == 'restart':
                 container.restart()
             elif action == 'remove':
+                log_fn = logger.warning if container.status == 'running' else logger.info
+                log_fn(f"Batch remove: deleting container {container.name} ({container.id[:12]}), status was '{container.status}', via Docker API (non-compose path)")
                 if container.status == 'running':
                     container.stop()
                 container.remove()
@@ -3783,6 +3952,8 @@ def perform_batch_action(action, container_ids, container_hosts=None):
                 continue
 
             results['success'] += 1
+            if action != 'remove':
+                logger.info(f"Batch {action}: container {container.name} ({container.id[:12]}) via Docker API (non-compose path)")
 
         except Exception as e:
             logger.error(f"Failed to {action} container {container.id}: {e}")

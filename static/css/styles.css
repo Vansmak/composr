@@ -1140,9 +1140,71 @@ header {
     }
     
     .container-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr !important;
     }
-    
+
+    /* Table view isn't a viable mobile layout (too many columns for the
+       width, confirmed across several rounds of real-device testing) - the
+       compact expandable card list below is the mobile experience, so
+       there's no toggle path back into table view to accidentally land in. */
+    #toggle-view {
+        display: none !important;
+    }
+
+    /* Two other rules elsewhere in this file set conflicting fixed heights
+       on .container-card (max-height:100px vs a later min-height:200px,
+       which wins per spec when the two conflict - every card was forced to
+       at least 200px regardless of content, which is most of why so few
+       fit on a phone screen). Overriding both to 'auto'/'none' here lets
+       height follow content instead - which is now genuinely small, since
+       everything but name+status is hidden until a row is tapped, below. */
+    .container-card {
+        min-height: auto !important;
+        max-height: none !important;
+        padding: 0.5rem 0.6rem !important;
+        gap: 0.3rem !important;
+        cursor: pointer;
+    }
+
+    .container-name {
+        font-size: 0.85rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .container-meta {
+        gap: 0.3rem;
+    }
+
+    .container-status-group {
+        gap: 0.3rem;
+        font-size: 0.7rem;
+    }
+
+    /* Collapsed row = just name + status. Host, uptime, ports, and the
+       Start/Stop/Restart commands only appear once the row is tapped
+       (.expanded, toggled in renderSingleContainer). The (⋯) menu for
+       Logs/Inspect/Terminal/Repull/Remove stays visible either way - it's
+       a separate, already-compact entry point untouched by this. */
+    .container-card:not(.expanded) .host-badge-small,
+    .container-card:not(.expanded) .uptime-badge,
+    .container-card:not(.expanded) .container-ports,
+    .container-card:not(.expanded) .actions {
+        display: none;
+    }
+
+    .container-card.expanded .actions {
+        gap: 0.3rem;
+    }
+
+    .container-card.expanded .actions .btn-sm {
+        flex: 1;
+        min-width: 0;
+        padding: 0.3rem 0.4rem;
+        font-size: 0.75rem;
+    }
+
     .tab {
         padding: 0.5rem 0.75rem;
     }
@@ -1223,11 +1285,6 @@ header {
     #host-filter {
         min-width: 6rem;
         max-width: 8rem;
-    }
-    
-    /* Hide toggle view button on mobile */
-    #toggle-view {
-        display: none !important;
     }
     
     /* Make stack headers much smaller on mobile */
@@ -2353,6 +2410,37 @@ select {
     text-overflow: initial !important;
 }
 
+/* table-view.js builds stack/host/tag header rows with these classes rather
+   than inline styles specifically so flex-wrap and the mobile shrink rules
+   below can take effect - an unwrapped, full-size header row forces this
+   colspan cell wider than the viewport, and since it's one HTML table, that
+   drags every ordinary data row wider than the screen along with it. */
+.stack-header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.stack-header-title {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+.stack-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.stack-header-icon-btn {
+    padding: 0.25rem 0.75rem;
+    font-size: 1.25rem;
+}
+
 /* Table actions styling */
 .table-actions {
     display: flex;
@@ -2478,12 +2566,67 @@ select {
 }
 
 @media (max-width: 768px) {
+    #table-view {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Reverted table-layout:fixed - it forced every column down to a couple
+       characters wide (fixed layout splits unspecified columns evenly with
+       no regard for content), and fixed-layout cells don't auto-clip, so
+       leftover text overflowed uncontained into neighboring cells instead of
+       wrapping. Auto layout lets content dictate width instead - the fix
+       for cramming too much into the first screen is capping specific wide
+       columns below (Name) and dropping a redundant one (Stack), not
+       fighting the whole table's layout algorithm again. */
+    #container-table {
+        min-width: 420px;
+        width: 100%;
+    }
+
     #container-table th,
     #container-table td {
-        padding: 0.4rem 0.5rem !important;
+        padding: 0.3rem 0.35rem !important;
+        font-size: 0.78rem;
+    }
+
+    /* Stack repeats the name already shown once in this row's stack-header
+       row above it - but only when actually grouped by stack (the JS in
+       renderContainersAsTable toggles this class only for group === 'stack').
+       Grouped by host, or ungrouped, this column is the only place that
+       info shows at all, so it must stay visible there. */
+    #container-table.grouped-by-stack th:nth-child(3),
+    #container-table.grouped-by-stack td:nth-child(3) {
+        display: none;
+    }
+
+    /* A container's own name is usually the least useful thing to see in
+       full on a phone (you already know which stack you're looking at) -
+       capping it with an ellipsis is what actually buys Status (and
+       usually Uptime) their first-screen visibility w/o horizontal scroll. */
+    #container-table th:nth-child(2),
+    #container-table td:nth-child(2) {
+        max-width: 90px !important;
+        min-width: 0 !important;
+        width: auto !important;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .stack-header-title {
         font-size: 0.85rem;
     }
-    
+
+    .stack-header-actions {
+        gap: 0.4rem;
+    }
+
+    .stack-header-icon-btn {
+        padding: 0.15rem 0.4rem;
+        font-size: 1rem;
+    }
+
     .table-actions {
         flex-direction: column;
         gap: 0.1rem;
@@ -2541,5 +2684,319 @@ select {
 }
 
 .health-healthy { color: #22c55e; }
+
+/* === Compose Service Field Form === */
+.compose-view-toggle {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    background: var(--bg-secondary);
+    padding: 0.25rem;
+    border-radius: 8px;
+    max-width: 260px;
+}
+
+/* Deliberately not .subtab - that class is targeted globally by
+   switchSubTab() (main.js), which would strip 'active' from these buttons
+   every time any config sub-tab changes, unrelated to this toggle. */
+.compose-view-btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 0.25rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+
+.compose-view-btn.active {
+    background: var(--accent-primary);
+    color: white;
+}
+
+.compose-empty-hint {
+    color: var(--text-secondary);
+    padding: 1.5rem 0.5rem;
+    text-align: center;
+}
+
+.compose-service-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.compose-service-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    text-align: left;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem;
+    cursor: pointer;
+    color: var(--text-primary);
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.compose-service-card:hover {
+    border-color: var(--accent-primary);
+    background: var(--bg-hover);
+}
+
+.compose-service-card-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.compose-service-card-image {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+
+.compose-service-card-meta {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.compose-service-badge {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.75rem;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+}
+
+.compose-service-form {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.compose-form-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.compose-form-header h4 {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.compose-form-field {
+    margin-bottom: 1rem;
+}
+
+.compose-form-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.compose-form-field label {
+    display: block;
+    margin-bottom: 0.3rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.compose-form-hint {
+    font-weight: 400;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    margin-left: 0.35rem;
+}
+
+.compose-form-field input[type="text"] {
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    width: 100%;
+}
+
+.compose-form-field input[type="text"]:focus {
+    border-color: var(--accent-primary);
+    outline: none;
+}
+
+.compose-form-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+}
+
+.compose-form-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.compose-form-row .compose-list-input,
+.compose-form-row .compose-kv-key,
+.compose-form-row .compose-kv-value {
+    flex: 1;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    min-width: 0;
+}
+
+.compose-form-row .compose-kv-key {
+    flex: 0 0 35%;
+}
+
+.compose-kv-eq {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.compose-extras-textarea {
+    width: 100%;
+    min-height: 100px;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: monospace;
+    font-size: 0.85rem;
+    resize: vertical;
+}
+
+.compose-form-actions {
+    margin-top: 1rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+    .compose-service-picker {
+        grid-template-columns: 1fr;
+    }
+
+    .compose-form-field-row {
+        grid-template-columns: 1fr;
+        gap: 0;
+    }
+}
 .health-warning { color: #f59e0b; }
 .health-error { color: #ef4444; }
+
+/* === Mobile drill-down navigation (mobile-list.js) === */
+/* Only ever rendered by renderMobileDrillDown, which itself is only called
+   at <=768px - no media query needed to scope these, the JS already gates
+   it. Stack list and container list share the same row treatment: a
+   full-width tappable button, name left, secondary info right. */
+.mobile-stack-list,
+.mobile-container-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.mobile-stack-row,
+.mobile-container-row {
+    width: 100%;
+    text-align: left;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    min-height: 48px;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+
+/* Group list rows (stacks/hosts/tags) stay a single line: name, running
+   count, chevron. */
+.mobile-stack-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+/* Container rows get a second, smaller line for host/stack/uptime - the
+   "little more visual info" ask - without going back to the old multi-row
+   card treatment that started this whole thing. */
+.mobile-container-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.mobile-stack-row:active,
+.mobile-container-row:active {
+    background: var(--bg-hover);
+}
+
+.mobile-container-row-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.mobile-container-row-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.mobile-stack-row-name,
+.mobile-container-row-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.mobile-stack-row-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.mobile-row-chevron {
+    color: var(--text-secondary);
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.mobile-container-row .health-healthy,
+.mobile-container-row .health-warning,
+.mobile-container-row .health-error {
+    font-size: 0.85rem;
+    flex-shrink: 0;
+}
+
+.mobile-drilldown-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.mobile-drilldown-header h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+}

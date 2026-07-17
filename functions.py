@@ -28,14 +28,27 @@ def load_container_metadata(metadata_file, logger):
                 return json.load(f)
         return {}
     except Exception as e:
-        logger.error(f"Failed to load container metadata: {e}")
+        # Callers (e.g. deploy_host resolution) treat {} the same as "no metadata
+        # yet" and silently fall back to 'local' - a torn/corrupt file here has
+        # previously caused a pi4-targeted stack to deploy locally instead. Log
+        # loud enough that it isn't missed in normal INFO-level scanning noise.
+        logger.warning(f"Failed to load container metadata from {metadata_file}, callers will see an empty map and may default hosts to 'local': {e}")
         return {}
 
 def save_container_metadata(metadata, metadata_file, logger):
-    """Save container metadata to file"""
+    """Save container metadata to file, atomically to avoid a torn/partial
+    write being read back as corrupt (see load_container_metadata note)."""
     try:
-        with open(metadata_file, 'w') as f:
-            json.dump(metadata, f)
+        dir_name = os.path.dirname(metadata_file) or '.'
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix='.container_metadata_', suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w') as f:
+                json.dump(metadata, f)
+            os.replace(tmp_path, metadata_file)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
         return True
     except Exception as e:
         logger.error(f"Failed to save container metadata: {e}")
@@ -1023,6 +1036,245 @@ def change_service_port(file_path, service_name, old_port, new_port, logger):
     ok, msg = _atomic_write_validated(file_path, new_lines, logger)
     diff_text = f"- {old_line.rstrip(chr(10))}\n+ {new_line.rstrip(chr(10))}"
     return ok, msg, diff_text
+
+
+# --- Service field form: structured read/write of a whole service block ---
+#
+# Same "never yaml.dump the whole file" rule as the rest of this section - only
+# the target service's own line range is ever replaced. Any compose key this
+# form doesn't model as a field (healthcheck, deploy, cap_add, custom driver
+# opts, depends_on/networks with per-entry config, ...) round-trips through
+# "extras": a YAML mapping fragment shown as raw text, re-dumped with PyYAML
+# on save rather than silently dropped. The tradeoff is that using the form on
+# a service rebuilds that one service's block from scratch, so comments
+# *inside* that block don't survive a save - comments elsewhere in the file
+# (other services, top-level keys) are untouched, same as every other editor
+# in this section.
+
+SERVICE_FORM_FIELDS = ['image', 'container_name', 'restart', 'ports', 'volumes',
+                        'environment', 'networks', 'depends_on', 'labels']
+
+
+class _IndentedListDumper(yaml.SafeDumper):
+    """PyYAML's default dumper puts a mapping key's list items at the same
+    indent as the key itself (key:\\n- item), which is valid YAML but reads
+    inconsistently next to this file's other block-style lists, which are
+    indented under their key. Forces the conventional nested style."""
+    def increase_indent(self, flow=False, indentless=False):
+        return super().increase_indent(flow, False)
+
+
+def _is_simple_scalar(v):
+    return v is None or isinstance(v, (str, int, float, bool))
+
+
+def _is_simple_list(v):
+    return isinstance(v, list) and all(_is_simple_scalar(i) for i in v)
+
+
+def _normalize_env_like(v):
+    """Normalize an environment:/labels: value to a list of 'KEY=VALUE' (or
+    bare 'KEY') strings for editing, plus which style it was written in
+    ('map' or 'list') so a save can render it back the same way. Returns
+    (None, None) if the value isn't a simple mapping/list of scalars (e.g. a
+    value that's itself a list or dict) - the caller should treat it as an
+    extra rather than mangling it."""
+    if isinstance(v, dict):
+        if not all(_is_simple_scalar(val) for val in v.values()):
+            return None, None
+        return [f'{k}={val}' if val not in (None, '') else str(k) for k, val in v.items()], 'map'
+    if isinstance(v, list) and all(isinstance(i, str) for i in v):
+        return list(v), 'list'
+    return None, None
+
+
+def get_service_summaries(file_path):
+    """Read-only list of a compose file's services for a picker UI: name,
+    image, restart policy, port count. Never touches the file."""
+    with open(file_path, 'r') as f:
+        data = yaml.safe_load(f) or {}
+    services = (data or {}).get('services') or {}
+    summaries = []
+    for name, cfg in services.items():
+        if not isinstance(cfg, dict):
+            continue
+        summaries.append({
+            'name': name,
+            'image': cfg.get('image') if isinstance(cfg.get('image'), str) else None,
+            'restart': cfg.get('restart') if isinstance(cfg.get('restart'), str) else None,
+            'port_count': len(cfg['ports']) if isinstance(cfg.get('ports'), list) else 0,
+        })
+    return summaries
+
+
+def get_service_fields(file_path, service_name):
+    """Structured read of one service: known fields for form inputs, plus
+    'extras' (a YAML mapping of everything else) and 'style' (map vs list, for
+    environment/labels) so a save can render fields back consistently.
+    Returns None if the service isn't found. Read-only (yaml.safe_load)."""
+    with open(file_path, 'r') as f:
+        data = yaml.safe_load(f) or {}
+    cfg = ((data or {}).get('services') or {}).get(service_name)
+    if not isinstance(cfg, dict):
+        return None
+
+    fields = {}
+    style = {}
+    extras = {}
+
+    for key, cfg_value in cfg.items():
+        if key not in SERVICE_FORM_FIELDS:
+            extras[key] = cfg_value
+            continue
+        if key in ('image', 'container_name', 'restart'):
+            if _is_simple_scalar(cfg_value):
+                fields[key] = '' if cfg_value is None else str(cfg_value)
+            else:
+                extras[key] = cfg_value
+        elif key in ('ports', 'volumes', 'networks', 'depends_on'):
+            if _is_simple_list(cfg_value):
+                fields[key] = [str(i) for i in cfg_value]
+            else:
+                extras[key] = cfg_value
+        elif key in ('environment', 'labels'):
+            normalized, kind = _normalize_env_like(cfg_value)
+            if normalized is not None:
+                fields[key] = normalized
+                style[key] = kind
+            else:
+                extras[key] = cfg_value
+
+    extras_yaml = ''
+    if extras:
+        extras_yaml = yaml.dump(extras, Dumper=_IndentedListDumper, default_flow_style=False, sort_keys=False)
+
+    return {'name': service_name, 'fields': fields, 'style': style, 'extras_yaml': extras_yaml}
+
+
+_YAML_RESERVED_SCALARS = {'true', 'false', 'yes', 'no', 'on', 'off', 'null', '~'}
+
+
+def _yaml_scalar(value):
+    """Render a Python value as a YAML flow scalar, quoting only when needed
+    so common values (image refs, port mappings, plain flags) stay readable
+    and match how compose files are normally hand-written. Biased toward
+    quoting when unsure - over-quoting is always valid YAML, under-quoting can
+    silently change a value's type (e.g. an unquoted numeric-looking tag)."""
+    s = str(value)
+    if s == '':
+        return '""'
+    needs_quote = (
+        s[0] in '\'"[]{}#&*!|>%@`,'
+        or s[0] in ' \t' or s[-1] in ' \t'
+        or ': ' in s or s.endswith(':')
+        or s.startswith('- ')
+        or s.lower() in _YAML_RESERVED_SCALARS
+        or re.match(r'^[-+]?[0-9]+(\.[0-9]+)?$', s)
+    )
+    if needs_quote:
+        return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    return s
+
+
+def _render_service_block(service_name, service_indent, property_indent, step, fields, style, extras_dict):
+    """Build the full line list for one service block: the 'name:' line, known
+    fields in a fixed order, then any extras dumped as YAML and re-indented to
+    match this file's own indent step."""
+    lines = [f"{' ' * service_indent}{service_name}:\n"]
+    prop = ' ' * property_indent
+
+    def clean_list(items):
+        return [str(i).strip() for i in (items or []) if str(i).strip()]
+
+    def emit_scalar(key, value):
+        if value is None or str(value).strip() == '':
+            return
+        lines.append(f'{prop}{key}: {_yaml_scalar(value)}\n')
+
+    def emit_list(key, items):
+        items = clean_list(items)
+        if not items:
+            return
+        lines.append(f'{prop}{key}:\n')
+        for item in items:
+            lines.append(f'{prop}  - {_yaml_scalar(item)}\n')
+
+    def emit_env_like(key, items, kind):
+        items = clean_list(items)
+        if not items:
+            return
+        lines.append(f'{prop}{key}:\n')
+        if kind == 'list':
+            for item in items:
+                lines.append(f'{prop}  - {_yaml_scalar(item)}\n')
+        else:
+            for item in items:
+                k, _, v = item.partition('=')
+                lines.append(f'{prop}  {k.strip()}: {_yaml_scalar(v)}\n')
+
+    emit_scalar('image', fields.get('image'))
+    emit_scalar('container_name', fields.get('container_name'))
+    emit_scalar('restart', fields.get('restart'))
+    emit_list('ports', fields.get('ports'))
+    emit_list('volumes', fields.get('volumes'))
+    emit_env_like('environment', fields.get('environment'), style.get('environment', 'map'))
+    emit_list('networks', fields.get('networks'))
+    emit_list('depends_on', fields.get('depends_on'))
+    emit_env_like('labels', fields.get('labels'), style.get('labels', 'map'))
+
+    if extras_dict:
+        dumped = yaml.dump(extras_dict, Dumper=_IndentedListDumper, default_flow_style=False, sort_keys=False, indent=step)
+        for raw in dumped.splitlines():
+            lines.append(f'{prop}{raw}\n' if raw.strip() else '\n')
+
+    return lines
+
+
+def set_service_fields(file_path, service_name, fields, style, extras_yaml, logger):
+    """Rewrite one service's entire block from form fields - see module note
+    above for the comment-preservation tradeoff. extras_yaml must be a YAML
+    mapping (or blank). Atomic write, validated. Returns (success, message)."""
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
+
+    indent_info = _detect_compose_indent(lines)
+    if not indent_info:
+        return False, 'Could not detect services: section'
+    _, service_indent, property_indent = indent_info
+    if not property_indent:
+        property_indent = service_indent + 2
+
+    block = find_service_block(file_path, service_name)
+    if not block:
+        return False, f'Service {service_name} not found'
+    start_line, end_line = block
+
+    extras_dict = {}
+    if extras_yaml and extras_yaml.strip():
+        try:
+            parsed = yaml.safe_load(extras_yaml)
+        except yaml.YAMLError as e:
+            return False, f'Extra fields are not valid YAML: {e}'
+        if parsed is not None:
+            if not isinstance(parsed, dict):
+                return False, 'Extra fields must be a YAML mapping (key: value pairs)'
+            extras_dict = parsed
+
+    step = max(property_indent - service_indent, 2)
+    new_block = _render_service_block(service_name, service_indent, property_indent,
+                                       step, fields, style, extras_dict)
+
+    # find_service_block folds trailing blank lines into the block it returns,
+    # so a plain lines[:start]+new_block+lines[end+1:] would eat the blank
+    # line separating this service from the next one - carry it forward.
+    trailing_blanks = []
+    i = end_line
+    while i >= start_line and lines[i].strip() == '':
+        trailing_blanks.insert(0, lines[i])
+        i -= 1
+    new_lines = lines[:start_line] + new_block + trailing_blanks + lines[end_line + 1:]
+
+    return _atomic_write_validated(file_path, new_lines, logger)
 
 
 def diagnose_docker_failure(raw_text, logger, host_client=None, host_name='local'):

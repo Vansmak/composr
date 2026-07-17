@@ -429,12 +429,7 @@
             <!-- Update the table structure in index.html -->
             <div id="table-view" class="view">
                 <table id="container-table">
-                    <thead>
-                        <tr id="table-controls-row" class="table-controls-row">
-                            <!-- Controls will be moved here dynamically -->
-                        </tr>
-                        <!-- Remove the hardcoded headers row -->
-                    </thead>
+                    <thead></thead>
                     <tbody id="table-body"></tbody>
                 </table>
             </div>
@@ -526,7 +521,24 @@
                     <button onclick="scanComposeFiles()" class="scan-btn">Scan</button>
                 </div>
 
-                <textarea id="compose-editor"></textarea>
+                <div id="compose-view-toggle" class="compose-view-toggle" style="display: none;">
+                    <button id="compose-services-tab-btn" class="compose-view-btn active" onclick="showComposeServicesView()">Services</button>
+                    <button id="compose-raw-tab-btn" class="compose-view-btn" onclick="showComposeRawView()">Raw YAML</button>
+                </div>
+
+                <!-- Field-form service editor -->
+                <div id="compose-services-view">
+                    <div id="compose-service-picker" class="compose-service-picker">
+                        <p class="compose-empty-hint">Select a compose file above to see its services.</p>
+                    </div>
+                    <div id="compose-service-form" class="compose-service-form" style="display: none;"></div>
+                </div>
+
+                <!-- Raw YAML editor (unchanged) -->
+                <div id="compose-raw-view" style="display: none;">
+                    <textarea id="compose-editor"></textarea>
+                </div>
+
                 <div class="editor-actions">
                     <!-- Add host selection using existing form styles -->
                     <div class="form-group" style="margin-bottom: 1rem;">
@@ -536,16 +548,16 @@
                         </select>
                         <button class="btn btn-secondary" onclick="loadComposeHosts()" title="Refresh hosts">🔄</button>
                     </div>
-                    
+
                     <!-- Keep existing buttons exactly as they are -->
-                    <button onclick="saveCompose()" class="btn btn-primary">Save</button>
+                    <button id="compose-raw-save-btn" onclick="saveCompose()" class="btn btn-primary" style="display: none;">Save</button>
                     <button onclick="composeAction('restart')" class="btn btn-success">🚀 Deploy</button>
                     <!--<button class="btn btn-secondary" onclick="extractEnvFromCompose()">Extract & Create .env</button>
-                    
+
                     <p class="help-text">Extract environment variables and create a new .env file</p>-->
                 </div>
             </div>
-            
+
             <!-- Env Config -->
             <div id="env-subtab" class="subtab-content">
                 <div class="compose-file-selector">
@@ -813,6 +825,8 @@
     <!-- Scripts -->
     <script src="/static/js/editor.js?v={{ static_version }}"></script>
     <script src="/static/js/main.js?v={{ static_version }}"></script>
+    <script src="/static/js/compose-form.js?v={{ static_version }}"></script>
+    <script src="/static/js/mobile-list.js?v={{ static_version }}"></script>
     <script src="/static/js/table-view.js?v={{ static_version }}"></script>
     <script src="/static/js/remote.js?v={{ static_version }}"></script>
     <script src="/static/js/backup.js?v={{ static_version }}"></script>
