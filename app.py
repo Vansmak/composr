@@ -5,6 +5,7 @@ import os
 import threading
 import time
 import re
+import fcntl
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from container_updates import ContainerUpdateManager
@@ -33,7 +34,7 @@ from functions import (
 from remote_hosts import host_manager
 
 # Add after imports
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 # Cache-busting suffix for local static assets, set once at process startup.
 # Without this, browsers can keep serving a stale main.js/styles.css
 # indefinitely across redeploys since the template references them with no
@@ -4668,52 +4669,6 @@ def rollback_container_update():
             'message': str(e)
         })
 
-# Background task for periodic update checks
-def start_container_update_checker():
-    """Start background thread for periodic container update checks"""
-    import threading
-    import time
-    
-    def update_checker_worker():
-        while True:
-            try:
-                settings = container_update_manager.settings
-                
-                if not settings['auto_check_enabled']:
-                    time.sleep(3600)  # Check settings every hour
-                    continue
-                
-                # Check if it's time for an update check
-                last_check = container_update_manager.load_update_cache().get('last_check', 0)
-                check_interval = settings['check_interval_hours'] * 3600
-                
-                if time.time() - last_check >= check_interval:
-                    logger.info("Performing scheduled container update check")
-                    
-                    try:
-                        containers = container_update_manager.get_all_containers_with_images(host_manager)
-                        if containers:
-                            update_results = container_update_manager.check_for_container_updates(containers)
-                            
-                            if update_results['updates_available'] > 0 and settings['notify_on_updates']:
-                                logger.info(f"Found {update_results['updates_available']} container updates available")
-                                # Could trigger notifications here
-                                
-                    except Exception as e:
-                        logger.error(f"Scheduled update check failed: {e}")
-                
-                # Sleep for 1 hour before checking again
-                time.sleep(3600)
-                
-            except Exception as e:
-                logger.error(f"Update checker worker error: {e}")
-                time.sleep(3600)
-    
-    # Start the background thread
-    update_thread = threading.Thread(target=update_checker_worker, daemon=True)
-    update_thread.start()
-    logger.info("Container update checker started")
-
 @app.route('/api/container-updates/auto-maintenance', methods=['POST'])
 def trigger_auto_maintenance():
     """Trigger automatic updates and scheduled repulls"""
@@ -4735,12 +4690,41 @@ def trigger_auto_maintenance():
             'message': str(e)
         })
 
+# Gunicorn runs multiple worker processes (see Dockerfile CMD), each importing
+# this module independently, so a background thread started at import time
+# would otherwise run once per worker - all reading the same settings/cache
+# file and firing scheduled repulls/updates for the same containers within
+# seconds of each other. Confirmed in production: concurrent `docker compose
+# up --force-recreate` calls from sibling workers raced on dispatcharr,
+# autoscan, sabnzbd, and jellyfin, leaving containers stuck in Created state
+# (2026-07-20 incident). An exclusive non-blocking flock on a fixed path lets
+# exactly one worker's thread proceed; the rest exit immediately. If the
+# lock-holding worker is ever replaced, the OS releases the lock on process
+# exit and the new worker's thread picks it up.
+_SCHEDULER_LOCK_PATH = '/tmp/composr_scheduler.lock'
+_scheduler_lock_handle = None
+
+def _acquire_scheduler_lock() -> bool:
+    global _scheduler_lock_handle
+    handle = open(_SCHEDULER_LOCK_PATH, 'w')
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return False
+    _scheduler_lock_handle = handle  # keep open for the life of this process to hold the lock
+    return True
+
 # Update the background checker to include auto-maintenance
 def start_container_update_checker():
     """Start background thread for periodic container update checks"""
-    
-    
+
+
     def update_checker_worker():
+        if not _acquire_scheduler_lock():
+            logger.info("Update checker already running in another worker process; skipping in this one")
+            return
+
         while True:
             try:
                 settings = container_update_manager.settings

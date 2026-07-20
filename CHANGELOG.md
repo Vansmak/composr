@@ -1,6 +1,11 @@
 # Changelog
 All notable changes to Composr will be documented in this file.
 
+## [2.1.1] - 2026-07-20
+### Fixed
+- **Scheduled updates**: gunicorn runs 4 worker processes, and the background update-checker thread was started at module import time - every worker ran its own independent copy, all reading the same settings/cache file and firing scheduled repulls/auto-updates for the same containers within seconds of each other. Concurrent `docker compose up --force-recreate` calls from sibling workers raced on the same container, and the previous stale-container retry (v1.8.3) only covered a single process's own interrupted attempt, not a sibling worker's simultaneous one. Production incident: dispatcharr, autoscan, and jellyfin left stuck in `Created` state overnight. Now an exclusive non-blocking file lock ensures only one worker's thread runs the scheduler; the rest skip immediately.
+- Removed a fully-shadowed duplicate `start_container_update_checker` definition left over from an earlier edit - dead code, no behavior change.
+
 ## [2.0.0] - 2026-07-14
 
 ### Added
