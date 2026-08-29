@@ -91,6 +91,7 @@ class ContainerUpdateManager:
                                 'image_name': image_info['name'],
                                 'image_tag': image_info['tag'],
                                 'image_registry': image_info['registry'],
+                                'image_namespace': image_info['namespace'],
                                 'compose_project': labels.get('com.docker.compose.project'),
                                 'compose_service': labels.get('com.docker.compose.service'),
                                 'compose_file': labels.get('com.docker.compose.project.config_files'),
@@ -239,6 +240,7 @@ class ContainerUpdateManager:
         try:
             image_info = {
                 'registry': container['image_registry'],
+                'namespace': container.get('image_namespace'),
                 'name': container['image_name'],
                 'tag': container['image_tag']
             }
@@ -330,6 +332,23 @@ class ContainerUpdateManager:
                 'last_checked': time.time()
             }
 
+    @staticmethod
+    def _parse_timestamp(value: str) -> datetime:
+        """Parse an ISO-8601 timestamp whose fractional-second digit count
+        doesn't match what datetime.fromisoformat accepts on this Python
+        version - Docker Hub's API and the Docker Engine's container
+        'Created' field (nanosecond precision) both produce fractional
+        digit counts fromisoformat rejects on Python < 3.11."""
+        value = value.replace('Z', '+00:00')
+        match = re.match(r'^(.*?)(\.\d+)?([+-]\d{2}:\d{2})?$', value)
+        base, frac, offset = match.groups()
+        if frac:
+            frac = frac[1:7].ljust(6, '0')  # truncate/pad to microseconds
+            value = f"{base}.{frac}{offset or ''}"
+        else:
+            value = f"{base}{offset or ''}"
+        return datetime.fromisoformat(value)
+
     def check_dockerhub_update(self, container: Dict, image_info: Dict) -> Dict:
         """Check Docker Hub for image updates"""
         try:
@@ -349,8 +368,8 @@ class ContainerUpdateManager:
 
             # Compare with container creation time
             if remote_updated:
-                remote_time = datetime.fromisoformat(remote_updated.replace('Z', '+00:00'))
-                container_time = datetime.fromisoformat(container['created'].replace('Z', '+00:00'))
+                remote_time = self._parse_timestamp(remote_updated)
+                container_time = self._parse_timestamp(container['created'])
 
                 update_available = remote_time > container_time
 

@@ -1,6 +1,11 @@
 # Changelog
 All notable changes to Composr will be documented in this file.
 
+## [2.1.2] - 2026-08-28
+### Fixed
+- **Container update checks silently failing for namespaced images**: `check_updates` parsed each image's Docker Hub namespace (e.g. `linuxserver` in `linuxserver/sabnzbd`) but never stored it on the container record, then rebuilt a stripped image-info dict without it and indexed it directly (not `.get()`) - any image that wasn't an official single-word Docker Hub image (i.e. almost everything except things like `nginx`/`redis`) crashed with `KeyError: 'namespace'` on every check. The exception was caught generically and reported as `update_available: False`, so the UI showed "all containers up to date" while actually just failing silently on most containers. Production example: sabnzbd, radarr, and others all reported up to date despite real newer tags on Docker Hub.
+- **Update-check timestamp parsing failing on real Docker/Docker Hub output**: once the above was fixed, comparing timestamps via `datetime.fromisoformat()` on Python 3.9 broke on both sides of the comparison - Docker Hub's `last_updated` field can carry 5-digit fractional seconds and Docker Engine's container `Created` field carries 9-digit (nanosecond) fractional seconds, neither of which Python's `fromisoformat` accepts before 3.11. Also silently caught and reported as "no update available." Added a small timestamp normalizer that truncates/pads the fractional-second component to microseconds before parsing.
+
 ## [2.1.1] - 2026-07-20
 ### Fixed
 - **Scheduled updates**: gunicorn runs 4 worker processes, and the background update-checker thread was started at module import time - every worker ran its own independent copy, all reading the same settings/cache file and firing scheduled repulls/auto-updates for the same containers within seconds of each other. Concurrent `docker compose up --force-recreate` calls from sibling workers raced on the same container, and the previous stale-container retry (v1.8.3) only covered a single process's own interrupted attempt, not a sibling worker's simultaneous one. Production incident: dispatcharr, autoscan, and jellyfin left stuck in `Created` state overnight. Now an exclusive non-blocking file lock ensures only one worker's thread runs the scheduler; the rest skip immediately.
