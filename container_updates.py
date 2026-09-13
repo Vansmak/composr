@@ -82,6 +82,9 @@ class ContainerUpdateManager:
                             # Get image information
                             image_info = self.parse_image_name(container.image.tags[0] if container.image.tags else container.image.id)
 
+                            repo_digests = container.image.attrs.get('RepoDigests', [])
+                            image_digest = repo_digests[0].split('@')[1] if repo_digests else None
+
                             container_info = {
                                 'id': container.short_id,
                                 'name': container.name,
@@ -92,6 +95,7 @@ class ContainerUpdateManager:
                                 'image_tag': image_info['tag'],
                                 'image_registry': image_info['registry'],
                                 'image_namespace': image_info['namespace'],
+                                'image_digest': image_digest,
                                 'compose_project': labels.get('com.docker.compose.project'),
                                 'compose_service': labels.get('com.docker.compose.service'),
                                 'compose_file': labels.get('com.docker.compose.project.config_files'),
@@ -253,6 +257,12 @@ class ContainerUpdateManager:
                     'current_tag': image_info['tag'],
                     'last_checked': time.time()
                 }
+
+            # GHCR (and any future digest-capable registry) is checked by
+            # comparing manifest digests, which works regardless of what
+            # the tag looks like - so it's handled before tag classification.
+            if image_info['registry'] == 'ghcr.io':
+                return self.check_ghcr_update(container, image_info)
 
             # Check different update strategies based on image tag
             if image_info['tag'] in ['latest', 'main', 'master', 'stable']:
@@ -545,10 +555,82 @@ class ContainerUpdateManager:
             'last_checked': time.time()
         }
 
+    def check_ghcr_update(self, container: Dict, image_info: Dict) -> Dict:
+        """Check ghcr.io for updates by comparing manifest digests.
+
+        Unlike Docker Hub's 'last_updated' timestamp, GHCR's registry API has
+        no reliable per-tag modification time, so this compares the remote
+        manifest digest for the current tag against the digest of the image
+        actually running - which works for any tag ('latest', 'release', a
+        version number, whatever), not just moving tags."""
+        try:
+            local_digest = container.get('image_digest')
+            if not local_digest:
+                return {
+                    'update_available': False,
+                    'reason': 'no_local_digest',
+                    'last_checked': time.time()
+                }
+
+            repo = f"{image_info['namespace']}/{image_info['name']}"
+            tag = image_info['tag']
+
+            token_resp = requests.get(
+                f"https://ghcr.io/token?scope=repository:{repo}:pull&service=ghcr.io",
+                timeout=10
+            )
+            token_resp.raise_for_status()
+            token = token_resp.json().get('token')
+
+            manifest_resp = requests.get(
+                f"https://ghcr.io/v2/{repo}/manifests/{tag}",
+                headers={
+                    'Authorization': f'Bearer {token}',
+                    'Accept': 'application/vnd.docker.distribution.manifest.list.v2+json, '
+                              'application/vnd.oci.image.index.v1+json, '
+                              'application/vnd.docker.distribution.manifest.v2+json, '
+                              'application/vnd.oci.image.manifest.v1+json'
+                },
+                timeout=10
+            )
+            if manifest_resp.status_code == 404:
+                return {
+                    'update_available': False,
+                    'reason': 'tag_not_found_on_registry',
+                    'current_tag': tag,
+                    'last_checked': time.time()
+                }
+            manifest_resp.raise_for_status()
+            remote_digest = manifest_resp.headers.get('Docker-Content-Digest')
+
+            if not remote_digest:
+                return {
+                    'update_available': False,
+                    'reason': 'no_remote_digest',
+                    'last_checked': time.time()
+                }
+
+            return {
+                'update_available': remote_digest != local_digest,
+                'current_tag': tag,
+                'local_digest': local_digest,
+                'remote_digest': remote_digest,
+                'check_method': 'ghcr_digest',
+                'last_checked': time.time()
+            }
+
+        except requests.RequestException as e:
+            logger.debug(f"GHCR API request failed for {repo if 'repo' in locals() else image_info.get('name')}: {e}")
+            return {
+                'update_available': False,
+                'error': f'GHCR API error: {str(e)}',
+                'last_checked': time.time()
+            }
+
     def check_registry_update(self, container: Dict, image_info: Dict) -> Dict:
-        """Check non-Docker Hub registries for updates"""
+        """Check non-Docker Hub, non-ghcr.io registries for updates"""
         # Implementation would depend on the specific registry API
-        # GitHub Container Registry, Azure Container Registry, etc. have different APIs
+        # Azure Container Registry, quay.io, etc. have different APIs
         return {
             'update_available': False,
             'reason': 'registry_not_supported',

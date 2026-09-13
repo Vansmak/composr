@@ -1,6 +1,12 @@
 # Changelog
 All notable changes to Composr will be documented in this file.
 
+## [2.1.3] - 2026-09-13
+### Added
+- **GHCR (ghcr.io) update checking**: update checks previously only worked against Docker Hub - any image from ghcr.io (GitHub Container Registry) unconditionally returned `reason: registry_not_supported`, silently reported as "no update available" in the UI even though nothing was actually checked. About a third of a typical self-hosted media/homelab fleet (dispatcharr, immich, netalertx, frigate, wg-easy, recyclarr, seerr, and others) ships from ghcr.io, so this was a large blind spot - a user could see "all containers up to date" while a specific container's own in-app UI separately reported a new release, with no indication Composr had never actually queried that registry. GHCR has no reliable per-tag last-modified timestamp like Docker Hub does, so this compares the remote manifest digest (via GHCR's anonymous token + registry v2 API) against the digest of the image actually running - which works for any tag shape (`latest`, `release`, a version number), not just moving tags.
+### Fixed
+- A ghcr.io image pinned to a tag the registry no longer publishes (e.g. `recyclarr:latest` - recyclarr only ships version tags and `edge`, never `latest`) now reports a clear `tag_not_found_on_registry` reason instead of a generic error.
+
 ## [2.1.2] - 2026-08-28
 ### Fixed
 - **Container update checks silently failing for namespaced images**: `check_updates` parsed each image's Docker Hub namespace (e.g. `linuxserver` in `linuxserver/sabnzbd`) but never stored it on the container record, then rebuilt a stripped image-info dict without it and indexed it directly (not `.get()`) - any image that wasn't an official single-word Docker Hub image (i.e. almost everything except things like `nginx`/`redis`) crashed with `KeyError: 'namespace'` on every check. The exception was caught generically and reported as `update_available: False`, so the UI showed "all containers up to date" while actually just failing silently on most containers. Production example: sabnzbd, radarr, and others all reported up to date despite real newer tags on Docker Hub.
